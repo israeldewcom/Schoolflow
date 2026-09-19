@@ -1182,6 +1182,9 @@
             SUPER_ADMIN: 'Super Admin',
             SCHOOL_OWNER: 'Proprietor',
             ADMIN: 'Admin',
+            HEAD_TEACHER: 'Head Teacher',
+            FORM_TEACHER: 'Form Teacher',
+            SUBJECT_TEACHER: 'Subject Teacher',
             BURSAR: 'Bursar',
             TEACHER: 'Teacher',
             STAFF: 'Staff',
@@ -1191,16 +1194,17 @@
             approvePayments: ['SUPER_ADMIN', 'SCHOOL_OWNER'],
             closeTerm: ['SUPER_ADMIN', 'SCHOOL_OWNER'],
             manageStaff: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN'],
+            manageUsers: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN'],
             manageStudents: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN'],
-            manageAttendance: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'TEACHER'],
-            manageResults: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'TEACHER'],
+            manageAttendance: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER', 'FORM_TEACHER', 'SUBJECT_TEACHER', 'TEACHER'],
+            manageResults: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER', 'FORM_TEACHER', 'SUBJECT_TEACHER', 'TEACHER'],
             submitPayments: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'BURSAR'],
-            viewReports: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'BURSAR'],
+            viewReports: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'BURSAR', 'HEAD_TEACHER'],
             manageSettings: ['SUPER_ADMIN', 'SCHOOL_OWNER'],
-            manageReportTemplates: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN'],
+            manageReportTemplates: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER', 'FORM_TEACHER'],
             manageFeeStructures: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'BURSAR'],
             manageParents: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN'],
-            manageExams: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'TEACHER'],
+            manageExams: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER', 'FORM_TEACHER', 'SUBJECT_TEACHER'],
             manageInvoices: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'BURSAR'],
             viewAll: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN'],
             platformAccess: ['SUPER_ADMIN']
@@ -1281,10 +1285,27 @@
             getUser() { return this._user; },
             getRole() { return this._user?.role || null; },
 
+            /**
+             * Permission check. Reads the delegation flag for the payment
+             * approval permission so bursars who have been delegated by
+             * the proprietor see approve/reject buttons.
+             */
             can(permission) {
                 const role = this.getRole();
                 if (!role) return false;
-                if (role === 'SUPER_ADMIN') return true;
+
+                // Super admin and owner bypass everything.
+                if (role === 'SUPER_ADMIN' || role === 'SCHOOL_OWNER') return true;
+
+                // Delegated payment approval — a bursar whose account has
+                // been granted approval permission by the proprietor.
+                if (permission === 'approvePayments') {
+                    const user = this.getUser();
+                    if (role === 'BURSAR' && user?.canApprovePayments === true) {
+                        return true;
+                    }
+                }
+
                 return (PERMISSION_ROLES[permission] || []).includes(role);
             },
 
@@ -1467,6 +1488,32 @@
             if (typeof v === 'string') return v;
             if (typeof v === 'object') return v.id || v._id || '';
             return String(v);
+        }
+
+        /**
+         * Safely extract an id from a record that may have `.id`, `._id`,
+         * or be a raw string. Use this everywhere in place of `X.id` when
+         * building dropdown options or passing ids to API calls.
+         */
+        function pickId(obj) {
+            if (!obj) return '';
+            if (typeof obj === 'string') return obj;
+            return String(obj.id || obj._id || '');
+        }
+
+        /**
+         * Safely extract a human-readable name from any entity shape.
+         */
+        function pickName(obj) {
+            if (!obj) return '';
+            if (typeof obj === 'string') return obj;
+            return (
+                obj.fullName ||
+                obj.name ||
+                `${obj.firstName || ''} ${obj.lastName || ''}`.trim() ||
+                obj.title ||
+                ''
+            );
         }
 
         function safeAvg(arr) {
@@ -1980,6 +2027,17 @@
                 }
                 const data = await Api.json(resp);
                 Api.setTokens(data.accessToken, data.refreshToken, data.user);
+
+                // Persist the delegation flag alongside the user so
+                // Api.can reads it correctly on the very first render
+                // after login.
+                if (data.user) {
+                    Api._user = data.user;
+                    try {
+                        localStorage.setItem('schoolflow_user', JSON.stringify(data.user));
+                    } catch (_) {}
+                }
+
                 errorEl.classList.remove('show');
                 hideAllScreens();
                 hapticFeedback(20);
@@ -2266,6 +2324,7 @@
             classes: ['Classes', 'Manage classes and fees'],
             parents: ['Parents', 'Guardian contacts and balances'],
             staff: ['Staff', 'Manage school staff'],
+            credentials: ['Logins & Roles', 'Manage staff and parent logins'],
             fees: ['Fee overview', 'Collection summary by class'],
             feestructure: ['Fee structure', 'Build termly fee structures per class'],
             payments: ['Payments', 'Record and review payments'],
@@ -2298,7 +2357,8 @@
                 { key: 'students', icon: 'bi-people-fill', label: 'Students' },
                 { key: 'classes', icon: 'bi-book-fill', label: 'Classes' },
                 { key: 'parents', icon: 'bi-person-lines-fill', label: 'Parents' },
-                { key: 'staff', icon: 'bi-person-badge-fill', label: 'Staff' }
+                { key: 'staff', icon: 'bi-person-badge-fill', label: 'Staff' },
+                { key: 'credentials', icon: 'bi-shield-lock-fill', label: 'Logins & Roles' }
             ] },
             { group: 'Finance', items: [
                 { key: 'feestructure', icon: 'bi-diagram-3-fill', label: 'Fee structure' },
@@ -2348,6 +2408,7 @@
                     if (item.key === 'parentportal' && role !== 'PARENT' && role !== 'SUPER_ADMIN' && role !== 'SCHOOL_OWNER') return false;
                     if (item.key === 'audit' && role !== 'SUPER_ADMIN') return false;
                     if (item.key === 'platformRenewals' && role !== 'SUPER_ADMIN') return false;
+                    if (item.key === 'credentials' && !Api.can('manageUsers')) return false;
                     return true;
                 });
                 if (!items.length) return '';
@@ -2859,8 +2920,6 @@
                     ((b.fees?.owed ?? (b.fees?.expected||0)-(b.fees?.paid||0)) - (a.fees?.owed ?? (a.fees?.expected||0)-(a.fees?.paid||0)))
                 );
 
-                // If the backend didn't return totalOutstanding, compute it
-                // from the live defaulter list so the hero number is honest.
                 const outstandingEl = document.getElementById('dashOutstanding');
                 if (outstandingEl && (outstandingEl.textContent === '₦0' || outstandingEl.textContent === '0')) {
                     const computedOutstanding = defList.reduce((s, d) => s + (d.fees?.owed ?? ((d.fees?.expected||0) - (d.fees?.paid||0))), 0);
@@ -2980,7 +3039,6 @@
                 }
             } catch (_) {}
 
-            // Class performance — expected vs collected, two datasets
             try {
                 const resp = await Api.get('/analytics/class-collection');
                 if (resp.ok) {
@@ -3011,7 +3069,6 @@
                 }
             } catch (_) {}
 
-            // Weekly attendance — uses data.rates, not data.values
             try {
                 const resp = await Api.get('/attendance/weekly');
                 if (resp.ok) {
@@ -3164,7 +3221,7 @@
                         const classes = await Api.json(resp);
                         const sel = document.getElementById('sfClass');
                         sel.innerHTML = (Array.isArray(classes) ? classes : []).map(c =>
-                            `<option value="${escJs(c.id)}">${escapeHtml(c.name)} — ${money(c.fee)}</option>`).join('');
+                            `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)} — ${money(c.fee)}</option>`).join('');
                     }
                 } catch (_) {}
             })();
@@ -3177,11 +3234,13 @@
             const address = document.getElementById('sfAddress').value.trim();
             const dob = document.getElementById('sfDob').value || '';
             const classId = document.getElementById('sfClass').value;
+
             if (!first || !last) { showToast('Please enter first and last name', 'error'); return; }
             if (!admissionNumber) { showToast('Admission number is required', 'error'); return; }
             if (!dob) { showToast('Date of birth is required', 'error'); return; }
-            if (!classId) { showToast('Please pick a class', 'error'); return; }
+            if (!classId || !isValidObjectId(classId)) { showToast('Please pick a class', 'error'); return; }
             if (!address) { showToast('Home address is required', 'error'); return; }
+
             setButtonLoading(btn, 'Saving...');
 
             const gender = document.getElementById('sfGender').value;
@@ -3204,12 +3263,12 @@
                             lastName: gLast,
                             fullName: guardianName,
                             phone: guardianPhone,
-                            email: guardianEmail || `${gFirst.toLowerCase()}.${gLast.toLowerCase()}@schoolflow.local`,
-                            relationship: 'Guardian'
+                            email: guardianEmail || `${gFirst.toLowerCase()}.${gLast.toLowerCase()}.${Date.now().toString(36)}@schoolflow.local`,
+                            relationship: 'Guardian',
                         });
                         if (parentResp.ok) {
                             const parent = await Api.json(parentResp);
-                            parentId = parent.id || parent._id;
+                            parentId = pickId(parent);
                         } else {
                             parentWarn = ' (parent record skipped)';
                         }
@@ -3228,8 +3287,9 @@
                     address,
                     classId,
                     sessionId: currentSessionId() || undefined,
-                    parentIds: parentId ? [parentId] : undefined
+                    parentIds: parentId ? [parentId] : undefined,
                 };
+
                 const resp = await Api.post('/students', payload);
                 if (!resp.ok) {
                     const msg = await parseErrorResponse(resp);
@@ -3305,7 +3365,7 @@
                         <div class="col-6"><label class="field-label">Admission number</label><input class="input-x" id="esAdmission" value="${escapeHtml(s.admissionNumber||'')}" /></div>
                         <div class="col-6"><label class="field-label">Gender</label><select class="input-x" id="esGender"><option value="MALE" ${s.gender==='MALE'?'selected':''}>Male</option><option value="FEMALE" ${s.gender==='FEMALE'?'selected':''}>Female</option></select></div>
                         <div class="col-6"><label class="field-label">Class</label><select class="input-x" id="esClass">
-                            ${(Array.isArray(classes) ? classes : []).map(c => `<option value="${escJs(c.id)}" ${c.id===currentClassId?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}
+                            ${(Array.isArray(classes) ? classes : []).map(c => `<option value="${escJs(pickId(c))}" ${pickId(c)===currentClassId?'selected':''}>${escapeHtml(c.name)}</option>`).join('')}
                         </select></div>
                         <div class="col-6"><label class="field-label">Date of birth</label><input class="input-x" id="esDob" type="date" value="${s.dateOfBirth ? String(s.dateOfBirth).slice(0,10) : ''}" /></div>
                         <div class="col-12"><label class="field-label">Address</label><input class="input-x" id="esAddress" value="${escapeHtml(s.address||'')}" /></div>
@@ -3442,8 +3502,9 @@
                 if (cResp.ok) {
                     const classes = await Api.json(cResp);
                     (Array.isArray(classes) ? classes : []).forEach(c => {
-                        classesById[c.id] = c;
-                        classesByName[(c.name || '').toLowerCase()] = c.id;
+                        const cid = pickId(c);
+                        classesById[cid] = c;
+                        classesByName[(c.name || '').toLowerCase()] = cid;
                     });
                 }
             } catch (_) {}
@@ -3458,7 +3519,13 @@
                     usedBulk = true;
                     closeModal();
                     hapticFeedback(30);
-                    showToast(`Imported ${data.added || data.count || rows.length} students`, 'success');
+                    const added = data.added || data.count || rows.length;
+                    const failed = data.failed || 0;
+                    if (failed > 0) {
+                        showToast(`Imported ${added}, ${failed} failed. Check names and class columns.`, 'warning', 7000);
+                    } else {
+                        showToast(`Imported ${added} students`, 'success');
+                    }
                     fireConfettiFrom(btn);
                     renderPage('students');
                     return;
@@ -3529,7 +3596,7 @@
                         const classes = await Api.json(resp);
                         const arr = Array.isArray(classes) ? classes : [];
                         _pageData.classes = arr;
-                        const opts = arr.map(c => `<option value="${escJs(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+                        const opts = arr.map(c => `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)}</option>`).join('');
                         document.getElementById('promoteFrom').innerHTML = opts;
                         document.getElementById('promoteTo').innerHTML = opts;
                     }
@@ -3563,7 +3630,7 @@
                 let ok = 0, fail = 0;
                 for (const s of arr) {
                     try {
-                        const r = await Api.put('/students/' + s.id, { classId: toId });
+                        const r = await Api.put('/students/' + pickId(s), { classId: toId });
                         if (r.ok) ok++; else fail++;
                     } catch (_) { fail++; }
                 }
@@ -3598,7 +3665,7 @@
                     return;
                 }
                 grid.innerHTML = list.map(c => `
-                    <div class="col-12 col-sm-6 col-lg-4"><div class="stat tone-green h-100"><div class="stat-top mb-2"><div><h6 class="mb-0">${escapeHtml(c.name)}</h6><span class="eyebrow">Level ${c.level || '—'} · ${escapeHtml(c.academicYear || '—')}</span></div><button class="btn-x btn-ghost-x btn-icon-only btn-sm-x" onclick="openEditClassModal('${escJs(c.id)}')" aria-label="Edit"><i class="bi bi-three-dots"></i></button></div><div class="d-flex justify-content-between mt-3"><div><div class="label-caps">Termly fee</div><div class="figure-md num">${money(c.fee)}</div></div><div style="text-align:right;"><div class="label-caps">Students</div><div class="figure-md num">${c.studentCount||0}</div></div></div></div></div>
+                    <div class="col-12 col-sm-6 col-lg-4"><div class="stat tone-green h-100"><div class="stat-top mb-2"><div><h6 class="mb-0">${escapeHtml(c.name)}</h6><span class="eyebrow">Level ${c.level || '—'} · ${escapeHtml(c.academicYear || '—')}</span></div><button class="btn-x btn-ghost-x btn-icon-only btn-sm-x" onclick="openEditClassModal('${escJs(pickId(c))}')" aria-label="Edit"><i class="bi bi-three-dots"></i></button></div><div class="d-flex justify-content-between mt-3"><div><div class="label-caps">Termly fee</div><div class="figure-md num">${money(c.fee)}</div></div><div style="text-align:right;"><div class="label-caps">Students</div><div class="figure-md num">${c.studentCount||0}</div></div></div></div></div>
                 `).join('');
             } catch (e) {
                 document.getElementById('classGrid').innerHTML = `<div class="col-12 text-center py-4 text-danger">Failed to load classes: ${escapeHtml(e.message)}</div>`;
@@ -3676,19 +3743,30 @@
             setButtonLoading(btn, 'Saving...');
             try {
                 const feeNaira = Number(document.getElementById('cfFee').value) || 0;
-                const resp = await Api.put('/classes/' + id, {
+                const payload = {
                     name: document.getElementById('cfName').value.trim(),
                     fee: feeNaira * 100,
                     level: Number(document.getElementById('cfLevel').value) || undefined,
                     academicYear: document.getElementById('cfYear').value.trim() || undefined,
-                    homeroomTeacher: document.getElementById('cfTeacher').value.trim() || undefined
-                });
-                if (!resp.ok) { showToast('Failed to update class', 'error'); return; }
+                };
+                // homeroomTeacher omitted — the backend only accepts a valid
+                // staff ObjectId, and the current UI sends a name string.
+                // Assign a teacher via a future picker before sending that field.
+
+                const resp = await Api.put('/classes/' + id, payload);
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg, 'error', 6000);
+                    return;
+                }
                 closeModal();
                 showToast('Class updated', 'success');
                 renderPage('classes');
-            } catch (e) { showToast(e.message || 'Network error', 'error'); }
-            finally { resetButton(btn); }
+            } catch (e) {
+                showToast(e.message || 'Network error', 'error');
+            } finally {
+                resetButton(btn);
+            }
         };
 
         window.confirmDeleteClass = function(id) {
@@ -3702,7 +3780,11 @@
             setButtonLoading(btn, 'Deleting...');
             try {
                 const resp = await Api.del('/classes/' + id);
-                if (!resp.ok) { showToast('Failed to delete class', 'error'); return; }
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg || 'Failed to delete class', 'error', 6000);
+                    return;
+                }
                 closeModal();
                 showToast('Class removed', 'info');
                 renderPage('classes');
@@ -3764,9 +3846,9 @@
                             <div class="figure-md num">${money(total)}</div>
                             <div class="eyebrow mt-1">${(fs.feeItems || []).length} item${(fs.feeItems || []).length === 1 ? '' : 's'}</div>
                             <div class="d-flex gap-2 mt-3">
-                                <button class="btn-x btn-outline-x btn-sm-x" onclick="viewFeeStructure('${escJs(fs.id)}')"><i class="bi bi-eye"></i> View</button>
-                                <button class="btn-x btn-outline-x btn-sm-x" onclick="openBuildFeeStructureModal('${escJs(fs.id)}')"><i class="bi bi-pencil"></i> Edit</button>
-                                <button class="btn-x btn-danger-x btn-sm-x ms-auto" onclick="deleteFeeStructure('${escJs(fs.id)}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>
+                                <button class="btn-x btn-outline-x btn-sm-x" onclick="viewFeeStructure('${escJs(pickId(fs))}')"><i class="bi bi-eye"></i> View</button>
+                                <button class="btn-x btn-outline-x btn-sm-x" onclick="openBuildFeeStructureModal('${escJs(pickId(fs))}')"><i class="bi bi-pencil"></i> Edit</button>
+                                <button class="btn-x btn-danger-x btn-sm-x ms-auto" onclick="deleteFeeStructure('${escJs(pickId(fs))}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>
                             </div>
                         </div></div>
                     `;
@@ -3835,19 +3917,19 @@
             openModal(editId ? 'Edit fee structure' : 'Build fee structure', `
                 <div class="row g-3 mb-3">
                     <div class="col-12 col-sm-6"><label class="field-label">Class</label><select class="input-x" id="fsClass">
-                        ${classes.length ? classes.map(c => `<option value="${escJs(c.id)}">${escapeHtml(c.name)}</option>`).join('') : '<option value="">No classes — add one first</option>'}
+                        ${classes.length ? classes.map(c => `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)}</option>`).join('') : '<option value="">No classes — add one first</option>'}
                     </select></div>
                     <div class="col-6 col-sm-3"><label class="field-label">Session</label>
                         <select class="input-x" id="fsSession">
                             ${_academicCache.sessions.length
-                                ? _academicCache.sessions.map(s => `<option value="${escJs(s.id)}" ${s.id === ctx.sessionId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')
+                                ? _academicCache.sessions.map(s => `<option value="${escJs(pickId(s))}" ${pickId(s) === ctx.sessionId ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')
                                 : `<option value="${escJs(ctx.sessionId)}">${escapeHtml(_pageData.school?.currentSession || 'Current')}</option>`}
                         </select>
                     </div>
                     <div class="col-6 col-sm-3"><label class="field-label">Term</label>
                         <select class="input-x" id="fsTerm">
                             ${_academicCache.terms.length
-                                ? _academicCache.terms.map(t => `<option value="${escJs(t.id)}" ${t.id === ctx.termId ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')
+                                ? _academicCache.terms.map(t => `<option value="${escJs(pickId(t))}" ${pickId(t) === ctx.termId ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')
                                 : `<option value="${escJs(ctx.termId)}">${escapeHtml(_pageData.school?.currentTerm || 'Current')}</option>`}
                         </select>
                     </div>
@@ -3857,7 +3939,7 @@
                     <span class="label-caps mb-0">Fee items</span>
                     <button class="btn-x btn-outline-x btn-sm-x" type="button" onclick="addFeeItemRow()"><i class="bi bi-plus-lg"></i> Add item</button>
                 </div>
-                <div id="feeItemRows" data-category-options='${escapeHtml(JSON.stringify(categories.map(c => ({ id: c.id, name: c.name }))))}'></div>
+                <div id="feeItemRows" data-category-options='${escapeHtml(JSON.stringify(categories.map(c => ({ id: pickId(c), name: c.name }))))}'></div>
                 <div class="d-flex justify-content-between align-items-center mt-3 p-2" style="background:var(--line-soft);border-radius:var(--radius-sm);">
                     <span class="label-caps mb-0">Total</span>
                     <strong class="num" id="feeTotalDisplay">₦0</strong>
@@ -4004,6 +4086,9 @@
 
         PAGE_RENDERERS.payments = function() {
             return `
+            <div id="payPendingBanner" style="display:none;background:var(--green-light);border-left:3px solid var(--green);padding:.7rem 1rem;border-radius:var(--radius-sm);margin-bottom:1rem;font-size:.85rem;">
+                <span id="payPendingText"></span>
+            </div>
             <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                 <div><h5 style="font-weight:700;">Payments</h5><span class="eyebrow" id="payTermLabel">${escapeHtml(_pageData.school?.currentTerm || _pageData.school?.term || 'Current term')}</span></div>
                 <button class="btn-x btn-gold-x btn-sm-x" onclick="openRecordPaymentModal()"><i class="bi bi-plus-lg"></i> Submit payment</button>
@@ -4020,6 +4105,18 @@
         };
 
         POST_RENDER_HOOKS.payments = async function() {
+            // Optional banner for bursars who have been delegated approval.
+            const user = Api.getUser();
+            if (user?.role === 'BURSAR' && user?.canApprovePayments) {
+                const banner = document.getElementById('payPendingBanner');
+                if (banner) {
+                    banner.style.display = '';
+                    document.getElementById('payPendingText').innerHTML =
+                        '<i class="bi bi-shield-check me-1" style="color:var(--green);"></i>' +
+                        'You have approval permission on this account. Payments you approve are final and will reconcile the invoice immediately.';
+                }
+            }
+
             try {
                 const resp = await Api.get('/payments');
                 if (!resp.ok) throw new Error(await parseErrorResponse(resp));
@@ -4053,7 +4150,13 @@
 
         function paymentActions(p) {
             if (p.status === 'PENDING') {
-                if (!Api.can('approvePayments')) return `<span class="chip chip-gold">Awaiting owner</span>`;
+                if (!Api.can('approvePayments')) {
+                    const role = Api.getRole();
+                    const message = role === 'BURSAR'
+                        ? 'Awaiting proprietor'
+                        : 'Awaiting approval';
+                    return `<span class="chip chip-gold">${message}</span>`;
+                }
                 return `<div class="d-flex gap-1"><button class="btn-x btn-primary-x btn-sm-x" onclick="approvePayment('${escJs(p.id)}', this)" aria-label="Approve"><i class="bi bi-check-lg"></i></button><button class="btn-x btn-danger-x btn-sm-x" onclick="rejectPaymentPrompt('${escJs(p.id)}')" aria-label="Reject"><i class="bi bi-x-lg"></i></button></div>`;
             }
             if (p.status === 'APPROVED') {
@@ -4083,7 +4186,7 @@
                         const students = await Api.json(resp);
                         const sel = document.getElementById('pfStudent');
                         sel.innerHTML = (Array.isArray(students) ? students : []).map(s =>
-                            `<option value="${escJs(s.id)}" ${s.id===preselectStudentId?'selected':''}>${escapeHtml(s.fullName)} — ${escapeHtml(s.className||'')}</option>`
+                            `<option value="${escJs(pickId(s))}" ${pickId(s)===preselectStudentId?'selected':''}>${escapeHtml(s.fullName)} — ${escapeHtml(s.className||'')}</option>`
                         ).join('');
                         sel.onchange = () => loadInvoicesForStudent(sel.value);
                         if (preselectStudentId) loadInvoicesForStudent(preselectStudentId);
@@ -4113,7 +4216,7 @@
                 }
                 if (submitBtn) { submitBtn.disabled = false; }
                 invSel.innerHTML = arr.map(i =>
-                    `<option value="${escJs(i.id)}" data-remaining="${Math.max(0, (i.total||i.amount||0) - (i.amountPaid||0))}">${escapeHtml(i.invoiceNumber || i.id.slice(0,8))} — ${money(i.total||i.amount)} (${i.status})</option>`
+                    `<option value="${escJs(pickId(i))}" data-remaining="${Math.max(0, (i.total||i.amount||0) - (i.amountPaid||0))}">${escapeHtml(i.invoiceNumber || String(pickId(i)).slice(0,8))} — ${money(i.total||i.amount)} (${i.status})</option>`
                 ).join('');
                 invSel.onchange = () => {
                     const opt = invSel.options[invSel.selectedIndex];
@@ -4288,11 +4391,6 @@
             }
         };
 
-        /**
-         * Now that /defaulters/remind-all exists and returns real counts,
-         * surface them instead of a hardcoded success message. Honest
-         * reporting of "queued X of Y" is more useful than "Sent!".
-         */
         window.sendBulkReminder = async function(btn) {
             setButtonLoading(btn, 'Sending...');
             try {
@@ -4367,11 +4465,10 @@
                 if (resp.ok) {
                     const classes = await Api.json(resp);
                     const sel = document.getElementById('attClassFilter');
-                    sel.innerHTML = '<option value="">All students</option>' + (Array.isArray(classes) ? classes : []).map(c => `<option value="${escJs(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+                    sel.innerHTML = '<option value="">All students</option>' + (Array.isArray(classes) ? classes : []).map(c => `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)}</option>`).join('');
                 }
             } catch (_) {}
 
-            // Today's summary — new endpoint shape: {present, absent, late, excused, rate, ...}
             try {
                 const resp = await Api.get('/attendance/today');
                 if (resp.ok) {
@@ -4382,7 +4479,6 @@
                 }
             } catch (_) {}
 
-            // Weekly trend — new endpoint shape: {labels, rates, totalActiveStudents}
             try {
                 const resp = await Api.get('/attendance/weekly');
                 if (resp.ok) {
@@ -4601,7 +4697,7 @@
                 if (resp.ok) {
                     const students = await Api.json(resp);
                     const sel = document.getElementById('attStudentFilter');
-                    sel.innerHTML = '<option value="">All students</option>' + (Array.isArray(students) ? students : []).map(s => `<option value="${escJs(s.id)}">${escapeHtml(s.fullName)}</option>`).join('');
+                    sel.innerHTML = '<option value="">All students</option>' + (Array.isArray(students) ? students : []).map(s => `<option value="${escJs(pickId(s))}">${escapeHtml(s.fullName)}</option>`).join('');
                 }
             } catch (_) {}
             const now = new Date();
@@ -4674,7 +4770,7 @@
                 if (cResp.ok) {
                     const classes = await Api.json(cResp);
                     const sel = document.getElementById('seClass');
-                    sel.innerHTML = (Array.isArray(classes) ? classes : []).map(c => `<option value="${escJs(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+                    sel.innerHTML = (Array.isArray(classes) ? classes : []).map(c => `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)}</option>`).join('');
                 }
             } catch (_) {}
             try {
@@ -4687,7 +4783,7 @@
                     if (arr.length === 0) {
                         sel.innerHTML = '<option value="">No subjects — add one first</option>';
                     } else {
-                        sel.innerHTML = arr.map(s => `<option value="${escJs(s.id)}">${escapeHtml(s.name)}</option>`).join('');
+                        sel.innerHTML = arr.map(s => `<option value="${escJs(pickId(s))}">${escapeHtml(s.name)}</option>`).join('');
                     }
                 } else {
                     document.getElementById('seSubject').innerHTML = '<option value="">Could not load subjects</option>';
@@ -4700,10 +4796,10 @@
             const activeSid = currentSessionId();
             const activeTid = currentTermId();
             sesSel.innerHTML = _academicCache.sessions.length
-                ? _academicCache.sessions.map(s => `<option value="${escJs(s.id)}" ${s.id === activeSid ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')
+                ? _academicCache.sessions.map(s => `<option value="${escJs(pickId(s))}" ${pickId(s) === activeSid ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('')
                 : `<option value="${escJs(activeSid||'')}">${escapeHtml(_pageData.school?.currentSession || 'Current')}</option>`;
             termSel.innerHTML = _academicCache.terms.length
-                ? _academicCache.terms.map(t => `<option value="${escJs(t.id)}" ${t.id === activeTid ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')
+                ? _academicCache.terms.map(t => `<option value="${escJs(pickId(t))}" ${pickId(t) === activeTid ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')
                 : `<option value="${escJs(activeTid||'')}">${escapeHtml(_pageData.school?.currentTerm || 'Current')}</option>`;
         };
 
@@ -4919,7 +5015,7 @@
             const resultByStudent = {};
             (Array.isArray(existingResults) ? existingResults : []).forEach(r => {
                 const sid = extractId(r.studentId);
-                if (sid) resultByStudent[sid] = r.id || r._id;
+                if (sid) resultByStudent[sid] = pickId(r);
             });
             setButtonLoading(btn, 'Importing...');
             let ok = 0, fail = 0, notFound = 0;
@@ -4997,9 +5093,9 @@
                     <td data-label="Status">${statusChip(i.status||'ISSUED')}</td>
                     <td data-label="Due">${fmtDate(i.dueDate)}</td>
                     <td><div class="d-flex gap-1">
-                        <button class="btn-x btn-outline-x btn-sm-x" onclick="viewInvoice('${escJs(i.id)}')" aria-label="View"><i class="bi bi-eye"></i></button>
-                        ${i.status !== 'PAID' && i.status !== 'CANCELLED' ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="updateInvoiceStatus('${escJs(i.id)}','PAID')" aria-label="Mark paid"><i class="bi bi-check-lg"></i></button>` : ''}
-                        ${i.status !== 'CANCELLED' ? `<button class="btn-x btn-danger-x btn-sm-x" onclick="updateInvoiceStatus('${escJs(i.id)}','CANCELLED')" aria-label="Cancel"><i class="bi bi-x-lg"></i></button>` : ''}
+                        <button class="btn-x btn-outline-x btn-sm-x" onclick="viewInvoice('${escJs(pickId(i))}')" aria-label="View"><i class="bi bi-eye"></i></button>
+                        ${i.status !== 'PAID' && i.status !== 'CANCELLED' ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="updateInvoiceStatus('${escJs(pickId(i))}','PAID')" aria-label="Mark paid"><i class="bi bi-check-lg"></i></button>` : ''}
+                        ${i.status !== 'CANCELLED' ? `<button class="btn-x btn-danger-x btn-sm-x" onclick="updateInvoiceStatus('${escJs(pickId(i))}','CANCELLED')" aria-label="Cancel"><i class="bi bi-x-lg"></i></button>` : ''}
                     </div></td>
                 </tr>
             `).join('');
@@ -5099,7 +5195,7 @@
                     if (resp.ok) {
                         const students = await Api.json(resp);
                         const sel = document.getElementById('invStudent');
-                        sel.innerHTML = (Array.isArray(students) ? students : []).map(s => `<option value="${escJs(s.id)}">${escapeHtml(s.fullName)} — ${escapeHtml(s.className||'')}</option>`).join('');
+                        sel.innerHTML = (Array.isArray(students) ? students : []).map(s => `<option value="${escJs(pickId(s))}">${escapeHtml(s.fullName)} — ${escapeHtml(s.className||'')}</option>`).join('');
                     }
                 } catch (_) {}
             })();
@@ -5421,8 +5517,8 @@
         // --- SETTINGS ---
         PAGE_RENDERERS.settings = function() {
             const school = _pageData.school || {};
-            const currentSessionName = (_academicCache.sessions.find(s => (s.id || s._id) === currentSessionId())?.name) || school.currentSession || school.session || '—';
-            const currentTermName = (_academicCache.terms.find(t => (t.id || t._id) === currentTermId())?.name) || school.currentTerm || school.term || '—';
+            const currentSessionName = (_academicCache.sessions.find(s => pickId(s) === currentSessionId())?.name) || school.currentSession || school.session || '—';
+            const currentTermName = (_academicCache.terms.find(t => pickId(t) === currentTermId())?.name) || school.currentTerm || school.term || '—';
             return `
             <div class="row g-3">
                 <div class="col-lg-6">
@@ -5525,7 +5621,7 @@
                     return;
                 }
                 const session = await Api.json(sResp);
-                const sessionId = session.id || session._id;
+                const sessionId = pickId(session);
                 const tResp = await Api.post('/academics/terms', {
                     sessionId, name: termName, startDate, endDate, isActive: true
                 });
@@ -5535,7 +5631,7 @@
                     return;
                 }
                 const term = await Api.json(tResp);
-                const termId = term.id || term._id;
+                const termId = pickId(term);
                 const schoolId = _pageData.school?.id;
                 if (schoolId) {
                     await Api.put('/schools/' + schoolId, {
@@ -5641,9 +5737,9 @@
                         </div>
                         <div class="eyebrow mt-2">Action: ${escapeHtml((a.actions||[]).map(x=>x.type).join(', ') || '—')}</div>
                         <div class="d-flex gap-2 mt-2">
-                            <button class="btn-x btn-outline-x btn-sm-x" onclick="testAutomation('${escJs(a.id)}')"><i class="bi bi-play-fill"></i> Test</button>
-                            <button class="btn-x btn-outline-x btn-sm-x" onclick="toggleAutomation('${escJs(a.id)}')"><i class="bi ${a.isEnabled?'bi-pause':'bi-play-fill'}"></i> ${a.isEnabled?'Disable':'Enable'}</button>
-                            <button class="btn-x btn-danger-x btn-sm-x" onclick="deleteAutomation('${escJs(a.id)}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="testAutomation('${escJs(pickId(a))}')"><i class="bi bi-play-fill"></i> Test</button>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="toggleAutomation('${escJs(pickId(a))}')"><i class="bi ${a.isEnabled?'bi-pause':'bi-play-fill'}"></i> ${a.isEnabled?'Disable':'Enable'}</button>
+                            <button class="btn-x btn-danger-x btn-sm-x" onclick="deleteAutomation('${escJs(pickId(a))}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>
                         </div>
                     </div></div>
                 `).join('');
@@ -5885,8 +5981,8 @@
                             <div class="eyebrow">${escapeHtml(d.category||'Uncategorized')}${d.templateType?` · <span class="chip chip-info">${escapeHtml(d.templateType)}</span>`:''}${d.isActiveTemplate?` <span class="chip chip-green">Active</span>`:''}</div>
                             <div class="d-flex gap-2 mt-1 flex-wrap">
                                 <a href="${escapeHtml(d.fileUrl||d.url||'#')}" target="_blank" class="btn-x btn-outline-x btn-sm-x"><i class="bi bi-eye"></i> View</a>
-                                ${d.templateType?`<button class="btn-x ${d.isActiveTemplate?'btn-gold-x':'btn-outline-x'} btn-sm-x" onclick="setActiveTemplate('${escJs(d.id)}','${escJs(d.templateType)}')"><i class="bi ${d.isActiveTemplate?'bi-check-lg':'bi-check2'}"></i> ${d.isActiveTemplate?'Active':'Set active'}</button>`:''}
-                                <button class="btn-x btn-danger-x btn-sm-x" onclick="deleteDocument('${escJs(d.id)}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>
+                                ${d.templateType?`<button class="btn-x ${d.isActiveTemplate?'btn-gold-x':'btn-outline-x'} btn-sm-x" onclick="setActiveTemplate('${escJs(pickId(d))}','${escJs(d.templateType)}')"><i class="bi ${d.isActiveTemplate?'bi-check-lg':'bi-check2'}"></i> ${d.isActiveTemplate?'Active':'Set active'}</button>`:''}
+                                <button class="btn-x btn-danger-x btn-sm-x" onclick="deleteDocument('${escJs(pickId(d))}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>
                             </div>
                         </div>
                     </div>
@@ -6073,7 +6169,7 @@
                     if (resp.ok) {
                         const classes = await Api.json(resp);
                         const sel = document.getElementById('bulkClass');
-                        sel.innerHTML = (Array.isArray(classes) ? classes : []).map(c => `<option value="${escJs(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+                        sel.innerHTML = (Array.isArray(classes) ? classes : []).map(c => `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)}</option>`).join('');
                     }
                 } catch (_) {}
             })();
@@ -6123,7 +6219,7 @@
                         for (const cls of (Array.isArray(classes) ? classes : [])) {
                             try {
                                 const r = await Api.post('/report-cards/generate-class', {
-                                    classId: cls.id,
+                                    classId: pickId(cls),
                                     sessionId: ctx.sessionId,
                                     termId: ctx.termId
                                 });
@@ -6312,8 +6408,8 @@
                         <div class="eyebrow mt-2">${(p.children||[]).map(c => escapeHtml(typeof c === 'string' ? c : (c.fullName || ''))).join(', ') || '—'}</div>
                         ${p.outstanding>0?`<div class="mt-2" style="color:var(--danger);font-weight:700;font-size:.85rem;">Owing ${money(p.outstanding)}</div>`:`<div class="mt-2" style="color:var(--green);font-weight:700;font-size:.85rem;">Fully paid</div>`}
                         <div class="d-flex gap-2 mt-2">
-                            <button class="btn-x btn-outline-x btn-sm-x" onclick="viewParent('${escJs(p.id)}')"><i class="bi bi-eye"></i> View</button>
-                            <button class="btn-x btn-outline-x btn-sm-x" onclick="sendParentSMS('${escJs(p.id)}')"><i class="bi bi-chat-dots"></i> SMS</button>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="viewParent('${escJs(pickId(p))}')"><i class="bi bi-eye"></i> View</button>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="sendParentSMS('${escJs(pickId(p))}')"><i class="bi bi-chat-dots"></i> SMS</button>
                         </div>
                     </div></div>
                 `;}).join('');
@@ -6457,15 +6553,15 @@
                     return `
                     <div class="col-12 col-md-6 col-lg-4"><div class="stat tone-slate h-100">
                         <div class="d-flex align-items-start gap-2">
-                            <div class="avatar-ring sm" style="background:${avatarColor(s.id)};">${initials(fullName)}</div>
+                            <div class="avatar-ring sm" style="background:${avatarColor(pickId(s))};">${initials(fullName)}</div>
                             <div class="flex-grow-1">
                                 <h6 class="mb-0">${escapeHtml(fullName)}</h6>
                                 <div class="eyebrow">${escapeHtml(s.role)}</div>
                                 <div class="eyebrow">${escapeHtml(s.email || s.phone || '')}</div>
                                 ${s.department?`<span class="chip chip-slate mt-1">${escapeHtml(s.department)}</span>`:''}
                                 <div class="d-flex gap-1 mt-2">
-                                    <button class="btn-x btn-outline-x btn-sm-x" onclick="openEditStaffModal('${escJs(s.id)}')" aria-label="Edit"><i class="bi bi-pencil"></i></button>
-                                    <button class="btn-x btn-danger-x btn-sm-x" onclick="deleteStaff('${escJs(s.id)}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>
+                                    <button class="btn-x btn-outline-x btn-sm-x" onclick="openEditStaffModal('${escJs(pickId(s))}')" aria-label="Edit"><i class="bi bi-pencil"></i></button>
+                                    <button class="btn-x btn-danger-x btn-sm-x" onclick="deleteStaff('${escJs(pickId(s))}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>
                                 </div>
                             </div>
                         </div>
@@ -6581,7 +6677,7 @@
         };
 
         window.openCreateStaffLogin = function() {
-            if (!Api.can('manageStaff')) { showToast('You do not have permission to create staff logins.', 'error'); return; }
+            if (!Api.can('manageUsers')) { showToast('You do not have permission to create staff logins.', 'error'); return; }
             openModal('Create staff login', `
                 <p class="eyebrow mb-3">Give a staff member their own login so they can mark attendance, enter scores, and submit payments.</p>
                 <div class="mb-3"><label class="field-label">Staff member</label><select class="input-x" id="clStaff"><option>Loading...</option></select></div>
@@ -6596,7 +6692,7 @@
                     if (resp.ok) {
                         const staff = await Api.json(resp);
                         const sel = document.getElementById('clStaff');
-                        sel.innerHTML = (Array.isArray(staff) ? staff : []).map(s => `<option value="${escJs(s.id)}">${escapeHtml(s.fullName || s.name || '—')} — ${escapeHtml(s.role)}</option>`).join('');
+                        sel.innerHTML = (Array.isArray(staff) ? staff : []).map(s => `<option value="${escJs(pickId(s))}">${escapeHtml(s.fullName || s.name || '—')} — ${escapeHtml(s.role)}</option>`).join('');
                     }
                 } catch (_) {}
             })();
@@ -6753,14 +6849,32 @@
             const type = document.getElementById('tplType').value;
             const img = document.getElementById('tplImage');
             if (!img) { showToast('Please upload a template image', 'error'); return; }
+
+            // Base64 inflates the byte count by ~33%. Cap the decoded size at
+            // 4 MB so the request never times out mid-upload.
+            const approxBytes = Math.ceil(img.src.length * 0.75);
+            if (approxBytes > 4 * 1024 * 1024) {
+                showToast(
+                    'Template image is too large (max 4 MB). Please compress it to ~1000px wide before uploading.',
+                    'error',
+                    7000
+                );
+                return;
+            }
+
             const pins = window._tplPins || [];
-            if (pins.length === 0) { showToast('Click on the template to mark field positions', 'warning'); return; }
+            if (pins.length === 0) {
+                showToast('Click on the template to mark field positions', 'warning');
+                return;
+            }
+
             setButtonLoading(btn, 'Saving...');
             try {
                 const resp = await Api.post('/report-cards/templates', {
-                    name, type,
+                    name,
+                    type,
                     imageData: img.src,
-                    pins
+                    pins,
                 });
                 if (!resp.ok) {
                     const msg = await parseErrorResponse(resp);
@@ -6771,8 +6885,15 @@
                 window._tplPins = [];
                 showToast(`Template "${name}" saved with ${pins.length} field pins`, 'success');
                 renderPage('reportstudio');
-            } catch (e) { showToast(e.message || 'Network error', 'error'); }
-            finally { resetButton(btn); }
+            } catch (e) {
+                if (e.message && e.message.toLowerCase().includes('timed out')) {
+                    showToast('Upload timed out. Try a smaller image (under 4 MB, ~1000px wide).', 'error', 6000);
+                } else {
+                    showToast(e.message || 'Network error', 'error', 6000);
+                }
+            } finally {
+                resetButton(btn);
+            }
         };
 
         window.rcNewTemplate = function() {
@@ -6919,6 +7040,363 @@
             renderAuditTable(filtered);
         };
 
+        // --- CREDENTIALS (NEW PAGE) ---
+        PAGE_RENDERERS.credentials = function() {
+            return `
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div><h5 style="font-weight:700;">Logins &amp; Roles</h5><span class="eyebrow" id="credCount">Loading...</span></div>
+                <button class="btn-x btn-primary-x btn-sm-x" onclick="openCreateCredentialModal()"><i class="bi bi-plus-lg"></i> Create login</button>
+            </div>
+            <div class="panel" style="padding:0;"><div class="table-wrap"><table class="tbl"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Scope</th><th>Status</th><th></th></tr></thead><tbody id="credBody"><tr><td colspan="6" class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</td></tr></tbody></table></div></div>
+            `;
+        };
+
+        POST_RENDER_HOOKS.credentials = async function() {
+            if (!Api.can('manageUsers')) return;
+            try {
+                const resp = await Api.get('/users');
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                const users = await Api.json(resp);
+                const arr = Array.isArray(users) ? users : [];
+                document.getElementById('credCount').textContent =
+                    arr.length + ' login' + (arr.length === 1 ? '' : 's');
+                const tbody = document.getElementById('credBody');
+                if (arr.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4">${emptyState('shield-lock','No logins yet','Create logins for form teachers, bursars, and parents.')}</td></tr>`;
+                    return;
+                }
+
+                const ROLE_LABEL = {
+                    SCHOOL_OWNER: 'Proprietor',
+                    ADMIN: 'Admin',
+                    HEAD_TEACHER: 'Head Teacher',
+                    FORM_TEACHER: 'Form Teacher',
+                    SUBJECT_TEACHER: 'Subject Teacher',
+                    BURSAR: 'Bursar',
+                    PARENT: 'Parent',
+                    STAFF: 'Staff',
+                };
+
+                tbody.innerHTML = arr.map(u => {
+                    const scope = u.formClassName
+                        ? `Class: ${escapeHtml(u.formClassName)}`
+                        : (u.subjectIds?.length
+                            ? `${u.subjectIds.length} subject${u.subjectIds.length === 1 ? '' : 's'}`
+                            : (u.parentName
+                                ? `Parent of ${escapeHtml(u.parentName)}`
+                                : 'Full'));
+
+                    const locked = ['SCHOOL_OWNER', 'SUPER_ADMIN'].includes(u.role);
+                    const isBursar = u.role === 'BURSAR';
+
+                    // Approval toggle is only rendered for bursars and only
+                    // when the logged-in user is the proprietor.
+                    const approvalToggle = (isBursar && Api.getRole() === 'SCHOOL_OWNER')
+                        ? `<label class="d-flex align-items-center gap-2 mt-2" style="cursor:pointer;font-size:.72rem;">
+                               <input type="checkbox"
+                                      ${u.canApprovePayments ? 'checked' : ''}
+                                      onchange="toggleBursarApproval('${escJs(u.id)}', this.checked)"
+                                      style="width:15px;height:15px;" />
+                               <span>Can approve payments</span>
+                           </label>`
+                        : (isBursar
+                            ? `<div class="mt-1"><span class="chip ${u.canApprovePayments ? 'chip-green' : 'chip-slate'}" style="font-size:.62rem;">
+                                  ${u.canApprovePayments ? 'Can approve' : 'Submit only'}
+                               </span></div>`
+                            : '');
+
+                    return `<tr>
+                        <td data-label="Name"><strong>${escapeHtml(u.name)}</strong></td>
+                        <td data-label="Username">${escapeHtml(u.username)}</td>
+                        <td data-label="Role"><span class="chip chip-slate">${escapeHtml(ROLE_LABEL[u.role] || u.role)}</span></td>
+                        <td data-label="Scope" class="eyebrow">${scope}${approvalToggle}</td>
+                        <td data-label="Status">${u.isActive ? '<span class="chip chip-green">Active</span>' : '<span class="chip chip-slate">Disabled</span>'}</td>
+                        <td>${locked ? '<span class="eyebrow">—</span>' : `<div class="d-flex gap-1">
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="openEditCredentialModal('${escJs(u.id)}')" aria-label="Edit"><i class="bi bi-pencil"></i></button>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="openResetPasswordModal('${escJs(u.id)}','${escJs(u.username)}')" aria-label="Reset password"><i class="bi bi-key"></i></button>
+                            <button class="btn-x btn-danger-x btn-sm-x" onclick="deleteCredential('${escJs(u.id)}','${escJs(u.username)}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>
+                        </div>`}</td>
+                    </tr>`;
+                }).join('');
+            } catch (e) {
+                document.getElementById('credBody').innerHTML =
+                    `<tr><td colspan="6" class="text-center py-4 text-danger">${escapeHtml(e.message)}</td></tr>`;
+            }
+        };
+
+        window.openCreateCredentialModal = async function() {
+            if (!Api.can('manageUsers')) { showToast('You do not have permission to create logins.', 'error'); return; }
+            openModal('Create login', `<div class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</div>`);
+            try {
+                const [classResp, parentResp, staffResp, subjResp] = await Promise.all([
+                    Api.get('/classes').catch(() => null),
+                    Api.get('/parents').catch(() => null),
+                    Api.get('/staff').catch(() => null),
+                    Api.get('/academics/subjects').catch(() => null)
+                ]);
+                const classes = classResp?.ok ? (await Api.json(classResp)) || [] : [];
+                const parents = parentResp?.ok ? (await Api.json(parentResp)) || [] : [];
+                const staff = staffResp?.ok ? (await Api.json(staffResp)) || [] : [];
+                const subjects = subjResp?.ok ? (await Api.json(subjResp)) || [] : [];
+                const subjectArr = Array.isArray(subjects) ? subjects : [];
+
+                document.getElementById('modalBody').innerHTML = `
+                    <div class="row g-3">
+                        <div class="col-12"><label class="field-label">Role</label>
+                            <select class="input-x" id="credRole" onchange="updateCredentialForm()">
+                                <option value="FORM_TEACHER">Form Teacher</option>
+                                <option value="SUBJECT_TEACHER">Subject Teacher</option>
+                                <option value="BURSAR">Bursar</option>
+                                <option value="ADMIN">Admin</option>
+                                <option value="HEAD_TEACHER">Head Teacher</option>
+                                <option value="STAFF">Staff</option>
+                                <option value="PARENT">Parent</option>
+                            </select>
+                        </div>
+                        <div class="col-12"><label class="field-label">Display name</label><input class="input-x" id="credName" placeholder="e.g. Adaeze Nwosu" /></div>
+                        <div class="col-6"><label class="field-label">Username</label><input class="input-x" id="credUsername" placeholder="e.g. adaeze" /></div>
+                        <div class="col-6"><label class="field-label">Password</label><input class="input-x" id="credPassword" type="password" placeholder="Min 6 chars" /></div>
+                        <div class="col-12" id="credExtraFields"></div>
+                    </div>
+                    <div class="d-flex gap-2 mt-4"><button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button><button class="btn-x btn-primary-x btn-block-x" onclick="saveCredential(this)"><i class="bi bi-shield-check"></i> Create login</button></div>
+                `;
+
+                // Store data for later lookup by updateCredentialForm.
+                window._credData = { classes, parents, staff, subjectArr };
+                updateCredentialForm();
+            } catch (e) {
+                document.getElementById('modalBody').innerHTML = `<div class="text-center py-4 text-danger">${escapeHtml(e.message)}</div>`;
+            }
+        };
+
+        window.updateCredentialForm = function() {
+            const role = document.getElementById('credRole').value;
+            const slot = document.getElementById('credExtraFields');
+            const data = window._credData || {};
+            if (!slot) return;
+
+            if (role === 'FORM_TEACHER') {
+                slot.innerHTML = `<label class="field-label">Assign to class</label><select class="input-x" id="credFormClass">
+                    ${(data.classes || []).map(c =>
+                        `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)}</option>`
+                    ).join('')}
+                </select>`;
+            } else if (role === 'SUBJECT_TEACHER') {
+                const arr = data.subjectArr || [];
+                slot.innerHTML = `<label class="field-label">Subjects (select at least one)</label>
+                    <div style="max-height:180px;overflow-y:auto;border:1.5px solid var(--line);border-radius:var(--radius-sm);padding:.3rem;">
+                    ${arr.map(s =>
+                        `<label class="d-flex align-items-center gap-2 p-2" style="cursor:pointer;">
+                            <input type="checkbox" class="cred-subj-cb" value="${escJs(pickId(s))}" style="width:16px;height:16px;" />
+                            <span class="fs-small">${escapeHtml(s.name)}</span>
+                        </label>`
+                    ).join('')}
+                    </div>`;
+            } else if (role === 'PARENT') {
+                slot.innerHTML = `<label class="field-label">Link to parent record</label><select class="input-x" id="credParent">
+                    ${(data.parents || []).map(p =>
+                        `<option value="${escJs(pickId(p))}">${escapeHtml(p.fullName || `${p.firstName || ''} ${p.lastName || ''}`.trim())} — ${escapeHtml(p.phone || '')}</option>`
+                    ).join('')}
+                </select>`;
+            } else if (['BURSAR', 'ADMIN', 'HEAD_TEACHER', 'STAFF'].includes(role)) {
+                slot.innerHTML = `<label class="field-label">Link to staff record (optional)</label><select class="input-x" id="credStaff">
+                    <option value="">— Not linked —</option>
+                    ${(data.staff || []).map(s =>
+                        `<option value="${escJs(pickId(s))}">${escapeHtml(s.fullName || s.name || '')} — ${escapeHtml(s.role || '')}</option>`
+                    ).join('')}
+                </select>`;
+            } else {
+                slot.innerHTML = '';
+            }
+        };
+
+        window.saveCredential = async function(btn) {
+            const role = document.getElementById('credRole').value;
+            if (!role) { showToast('Select a role', 'error'); return; }
+
+            const payload = {
+                role,
+                name: document.getElementById('credName').value.trim(),
+                username: document.getElementById('credUsername').value.trim(),
+                password: document.getElementById('credPassword').value,
+            };
+
+            if (!payload.name) { showToast('Enter a display name', 'error'); return; }
+            if (!payload.username) { showToast('Enter a username', 'error'); return; }
+            if (!payload.password || payload.password.length < 6) {
+                showToast('Password must be at least 6 characters', 'error');
+                return;
+            }
+
+            if (role === 'FORM_TEACHER') {
+                const v = document.getElementById('credFormClass').value;
+                if (!v || !isValidObjectId(v)) { showToast('Pick a class', 'error'); return; }
+                payload.formClassId = v;
+            }
+
+            if (role === 'SUBJECT_TEACHER') {
+                const checkboxes = [...document.querySelectorAll('.cred-subj-cb:checked')];
+                const ids = checkboxes
+                    .map((cb) => cb.value)
+                    .filter((v) => v && isValidObjectId(v));
+                if (ids.length === 0) {
+                    showToast('Select at least one subject for this teacher.', 'error', 5000);
+                    return;
+                }
+                payload.subjectIds = ids;
+            }
+
+            if (role === 'PARENT') {
+                const v = document.getElementById('credParent').value;
+                if (!v || !isValidObjectId(v)) { showToast('Select a parent record', 'error'); return; }
+                payload.parentId = v;
+            }
+
+            if (['BURSAR', 'ADMIN', 'HEAD_TEACHER', 'STAFF'].includes(role)) {
+                const staffId = document.getElementById('credStaff')?.value;
+                if (staffId && isValidObjectId(staffId)) payload.staffId = staffId;
+            }
+
+            setButtonLoading(btn, 'Creating...');
+            try {
+                const resp = await Api.post('/users', payload);
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg, 'error', 6000);
+                    return;
+                }
+                closeModal();
+                hapticFeedback(25);
+                showToast(`Login created for ${payload.name}`, 'success');
+                renderPage('credentials');
+            } catch (e) {
+                showToast(e.message || 'Network error', 'error');
+            } finally {
+                resetButton(btn);
+            }
+        };
+
+        window.openEditCredentialModal = async function(id) {
+            openModal('Edit login', `<div class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</div>`);
+            try {
+                const resp = await Api.get('/users');
+                if (!resp.ok) throw new Error('Could not load users');
+                const arr = await Api.json(resp);
+                const user = (Array.isArray(arr) ? arr : []).find(u => u.id === id);
+                if (!user) { showToast('User not found', 'error'); closeModal(); return; }
+                document.getElementById('modalBody').innerHTML = `
+                    <div class="row g-3">
+                        <div class="col-12"><label class="field-label">Display name</label><input class="input-x" id="ecName" value="${escapeHtml(user.name||'')}" /></div>
+                        <div class="col-6"><label class="field-label">Email</label><input class="input-x" id="ecEmail" value="${escapeHtml(user.email||'')}" /></div>
+                        <div class="col-6"><label class="field-label">Phone</label><input class="input-x" id="ecPhone" value="${escapeHtml(user.phone||'')}" /></div>
+                        <div class="col-12"><label class="field-label">New password (leave blank to keep current)</label><input class="input-x" id="ecPassword" type="password" placeholder="Min 6 chars" /></div>
+                        <div class="col-12">
+                            <label class="d-flex align-items-center gap-2" style="cursor:pointer;">
+                                <input type="checkbox" id="ecActive" ${user.isActive ? 'checked' : ''} style="width:16px;height:16px;" />
+                                <span class="fs-small">Account active</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2 mt-4"><button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button><button class="btn-x btn-primary-x btn-block-x" onclick="saveEditCredential('${escJs(id)}', this)"><i class="bi bi-check-lg"></i> Save changes</button></div>
+                `;
+            } catch (e) { showToast(e.message || 'Network error', 'error'); closeModal(); }
+        };
+
+        window.saveEditCredential = async function(id, btn) {
+            setButtonLoading(btn, 'Saving...');
+            const payload = {
+                name: document.getElementById('ecName').value.trim(),
+                email: document.getElementById('ecEmail').value.trim(),
+                phone: document.getElementById('ecPhone').value.trim(),
+                isActive: document.getElementById('ecActive').checked,
+            };
+            const pw = document.getElementById('ecPassword').value;
+            if (pw) {
+                if (pw.length < 6) { showToast('Password must be at least 6 characters', 'error'); resetButton(btn); return; }
+                payload.password = pw;
+            }
+            try {
+                const resp = await Api.put('/users/' + id, payload);
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg, 'error', 6000);
+                    return;
+                }
+                closeModal();
+                showToast('Login updated', 'success');
+                renderPage('credentials');
+            } catch (e) { showToast(e.message || 'Network error', 'error'); }
+            finally { resetButton(btn); }
+        };
+
+        window.openResetPasswordModal = function(id, username) {
+            openModal('Reset password', `
+                <p class="eyebrow mb-3">Set a new password for <strong>${escapeHtml(username)}</strong>. Their active sessions will be ended.</p>
+                <div class="mb-3"><label class="field-label">New password</label><input class="input-x" id="rpPassword" type="password" placeholder="Min 6 chars" /></div>
+                <div class="mb-1"><label class="field-label">Confirm password</label><input class="input-x" id="rpConfirm" type="password" placeholder="Confirm password" /></div>
+                <div class="d-flex gap-2 mt-4"><button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button><button class="btn-x btn-primary-x btn-block-x" onclick="submitResetPassword('${escJs(id)}', this)"><i class="bi bi-key"></i> Reset password</button></div>
+            `);
+        };
+
+        window.submitResetPassword = async function(id, btn) {
+            const password = document.getElementById('rpPassword').value;
+            const confirm = document.getElementById('rpConfirm').value;
+            if (!password || password.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
+            if (password !== confirm) { showToast('Passwords do not match', 'error'); return; }
+            setButtonLoading(btn, 'Resetting...');
+            try {
+                const resp = await Api.post('/users/' + id + '/reset-password', { password });
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg, 'error', 6000);
+                    return;
+                }
+                closeModal();
+                showToast('Password reset', 'success');
+            } catch (e) { showToast(e.message || 'Network error', 'error'); }
+            finally { resetButton(btn); }
+        };
+
+        window.deleteCredential = async function(id, username) {
+            if (!confirm(`Delete login "${username}"? This cannot be undone.`)) return;
+            try {
+                const resp = await Api.del('/users/' + id);
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg || 'Failed to delete login', 'error', 6000);
+                    return;
+                }
+                showToast('Login deleted', 'info');
+                renderPage('credentials');
+            } catch (e) { showToast('Network error', 'error'); }
+        };
+
+        window.toggleBursarApproval = async function(userId, canApprove) {
+            try {
+                const resp = await Api.put('/users/' + userId + '/approval-delegation', {
+                    canApprovePayments: canApprove,
+                });
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg, 'error', 6000);
+                    // Revert the checkbox since the backend rejected the change.
+                    renderPage('credentials');
+                    return;
+                }
+                hapticFeedback(20);
+                if (canApprove) {
+                    showToast('This bursar can now approve payments.', 'success');
+                } else {
+                    showToast('Approval permission revoked.', 'info');
+                }
+                // Reload the list so any derived UI is consistent.
+                renderPage('credentials');
+            } catch (e) {
+                showToast(e.message || 'Network error', 'error');
+                renderPage('credentials');
+            }
+        };
+
         // --- PARENT PORTAL ---
         PAGE_RENDERERS.parentportal = function() {
             const user = Api.getUser();
@@ -7007,7 +7485,7 @@
                         <td data-label="Subject">${escapeHtml(e.subjectName||e.subjectId?.name||'—')}</td>
                         <td data-label="Date">${fmtDate(e.date)}</td>
                         <td data-label="Max" class="num">${e.maxScore}</td>
-                        <td><button class="btn-x btn-outline-x btn-sm-x" onclick="editExam('${escJs(e.id)}')" aria-label="Edit"><i class="bi bi-pencil"></i></button><button class="btn-x btn-danger-x btn-sm-x" onclick="deleteExam('${escJs(e.id)}')" aria-label="Delete"><i class="bi bi-trash3"></i></button></td>
+                        <td><button class="btn-x btn-outline-x btn-sm-x" onclick="editExam('${escJs(pickId(e))}')" aria-label="Edit"><i class="bi bi-pencil"></i></button><button class="btn-x btn-danger-x btn-sm-x" onclick="deleteExam('${escJs(pickId(e))}')" aria-label="Delete"><i class="bi bi-trash3"></i></button></td>
                     </tr>
                 `).join('');
             } catch (e) {
@@ -7018,7 +7496,7 @@
         window.openAddExamModal = function() {
             openModal('Add Exam', `
                 <div class="mb-3"><label class="field-label">Exam name</label><input class="input-x" id="examName" placeholder="e.g. First Term Mathematics" /></div>
-                <div class="mb-3"><label class="field-label">Class</label><select class="input-x" id="examClass"><option>Loading...</option></select></div>
+                <div class="mb-3"><label class="field-label">Class</label><select class="input-x" id="examClass" onchange="reloadExamSubjects()"><option>Loading...</option></select></div>
                 <div class="mb-3"><label class="field-label">Subject</label><select class="input-x" id="examSubject"><option>Loading...</option></select></div>
                 <div class="mb-3"><label class="field-label">Max score</label><input class="input-x" id="examMax" type="number" value="100" /></div>
                 <div class="mb-1"><label class="field-label">Date</label><input class="input-x" id="examDate" type="date" /></div>
@@ -7029,35 +7507,68 @@
                     const [cResp, sResp] = await Promise.all([Api.get('/classes'), Api.get('/academics/subjects')]);
                     if (cResp.ok) {
                         const classes = await Api.json(cResp);
-                        document.getElementById('examClass').innerHTML = (Array.isArray(classes) ? classes : []).map(c => `<option value="${escJs(c.id)}">${escapeHtml(c.name)}</option>`).join('');
+                        document.getElementById('examClass').innerHTML = (Array.isArray(classes) ? classes : []).map(c => `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)}</option>`).join('');
                     }
                     if (sResp.ok) {
                         const subjects = await Api.json(sResp);
                         const arr = Array.isArray(subjects) ? subjects : [];
-                        document.getElementById('examSubject').innerHTML = arr.length
-                            ? arr.map(s => `<option value="${escJs(s.id)}">${escapeHtml(s.name)}</option>`).join('')
-                            : '<option value="">No subjects — add one in Score Entry</option>';
+                        const subjSel = document.getElementById('examSubject');
+                        if (arr.length === 0) {
+                            subjSel.innerHTML = '<option value="">No subjects for this class</option>';
+                            subjSel.disabled = true;
+                            subjSel.insertAdjacentHTML('afterend',
+                                `<div class="p-2 mt-1" style="background:var(--gold-light);border-radius:var(--radius-sm);font-size:.8rem;">
+                                    <i class="bi bi-info-circle me-1"></i>This class has no subjects yet.
+                                    <a onclick="closeModal();navigateTo('scoreentry');setTimeout(()=>openAddSubjectModal(),300)"
+                                       style="cursor:pointer;text-decoration:underline;font-weight:600;">Add a subject</a>
+                                </div>`);
+                            const saveBtn = document.querySelector('#modalBody .btn-primary-x');
+                            if (saveBtn) saveBtn.disabled = true;
+                        } else {
+                            subjSel.disabled = false;
+                            subjSel.innerHTML = arr.map(s =>
+                                `<option value="${escJs(pickId(s))}">${escapeHtml(s.name || '')}</option>`
+                            ).join('');
+                        }
                     }
                 } catch (_) {}
             })();
+        };
+
+        window.reloadExamSubjects = function() {
+            // Placeholder — subjects are currently a flat list per school.
+            // When subjects become class-specific, this function fetches
+            // the appropriate subset for the selected class.
         };
 
         window.saveExam = async function(btn) {
             const ctx = ensureAcademicContext();
             if (!ctx) return;
             const name = document.getElementById('examName').value.trim();
+            const subjectId = document.getElementById('examSubject').value;
+            const classId = document.getElementById('examClass').value;
+
             if (!name) { showToast('Please enter an exam name', 'error'); return; }
+            if (!classId || !isValidObjectId(classId)) {
+                showToast('Please select a class', 'error');
+                return;
+            }
+            if (!subjectId || !isValidObjectId(subjectId)) {
+                showToast('Please create a subject first (Subjects → Add subject).', 'warning', 6000);
+                return;
+            }
+
             setButtonLoading(btn, 'Saving...');
             try {
                 const resp = await Api.post('/exams', {
                     name,
-                    classId: document.getElementById('examClass').value,
-                    subjectId: document.getElementById('examSubject').value || undefined,
-                    subjectName: (document.getElementById('examSubject').selectedOptions[0]?.text) || 'General',
+                    classId,
+                    subjectId,
+                    subjectName: document.getElementById('examSubject').selectedOptions[0]?.text || 'General',
                     maxScore: Number(document.getElementById('examMax').value) || 100,
                     date: document.getElementById('examDate').value,
                     sessionId: ctx.sessionId,
-                    termId: ctx.termId
+                    termId: ctx.termId,
                 });
                 if (!resp.ok) {
                     const msg = await parseErrorResponse(resp);
@@ -7067,8 +7578,11 @@
                 closeModal();
                 showToast('Exam created', 'success');
                 renderPage('exams');
-            } catch (e) { showToast(e.message || 'Network error', 'error'); }
-            finally { resetButton(btn); }
+            } catch (e) {
+                showToast(e.message || 'Network error', 'error');
+            } finally {
+                resetButton(btn);
+            }
         };
 
         window.editExam = function(id) { showToast('Edit exam feature coming soon', 'info'); };
@@ -7141,8 +7655,8 @@
                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
                             <div><strong>${escapeHtml(r.schoolId?.name || 'School')}</strong> – ${money(r.amount)} (${escapeHtml(r.plan||'')})</div>
                             <div class="d-flex gap-2">
-                                <button class="btn-x btn-primary-x btn-sm-x" onclick="approveRenewal('${escJs(r.id)}')"><i class="bi bi-check-lg"></i> Approve</button>
-                                <button class="btn-x btn-danger-x btn-sm-x" onclick="rejectRenewalPrompt('${escJs(r.id)}')"><i class="bi bi-x-lg"></i> Reject</button>
+                                <button class="btn-x btn-primary-x btn-sm-x" onclick="approveRenewal('${escJs(pickId(r))}')"><i class="bi bi-check-lg"></i> Approve</button>
+                                <button class="btn-x btn-danger-x btn-sm-x" onclick="rejectRenewalPrompt('${escJs(pickId(r))}')"><i class="bi bi-x-lg"></i> Reject</button>
                             </div>
                         </div>
                         <div class="eyebrow">Reference: ${escapeHtml(r.reference||'')} · Submitted: ${fmtDate(r.submittedAt||r.createdAt)}</div>
@@ -7379,7 +7893,7 @@
                     s.status === 'trial' ? 'chip-gold' :
                     s.status === 'past_due' ? 'chip-danger' : 'chip-slate';
                 return `
-                    <tr class="clickable" data-search="${escapeHtml((s.name+' '+(s.state||'')).toLowerCase())}" data-status="${escapeHtml(s.status)}" onclick="openPlatformSchoolDetail('${escJs(s.id)}')">
+                    <tr class="clickable" data-search="${escapeHtml((s.name+' '+(s.state||'')).toLowerCase())}" data-status="${escapeHtml(s.status)}" onclick="openPlatformSchoolDetail('${escJs(pickId(s))}')">
                         <td data-label="School"><strong>${escapeHtml(s.name)}</strong></td>
                         <td data-label="State">${escapeHtml(s.state || '—')}</td>
                         <td data-label="Plan"><span class="chip chip-slate">${escapeHtml(s.plan || 'Starter')}</span></td>
@@ -7387,7 +7901,7 @@
                         <td data-label="MRR" class="num">${money(s.planPrice || 0)}</td>
                         <td data-label="Renews">${renewLabel}</td>
                         <td data-label="Status"><span class="chip ${statusCls}">${escapeHtml(s.status)}</span></td>
-                        <td><button class="btn-x btn-outline-x btn-sm-x" onclick="event.stopPropagation();openPlatformSchoolDetail('${escJs(s.id)}')" aria-label="View"><i class="bi bi-eye"></i></button></td>
+                        <td><button class="btn-x btn-outline-x btn-sm-x" onclick="event.stopPropagation();openPlatformSchoolDetail('${escJs(pickId(s))}')" aria-label="View"><i class="bi bi-eye"></i></button></td>
                     </tr>
                 `;
             }).join('');
@@ -7408,11 +7922,6 @@
             if (el) { el.value = 'trial'; filterPlatformSchools(); }
         };
 
-        /**
-         * Detail endpoint is now real, so no need for the stale-data
-         * fallback. If it fails, we show a clean error instead of
-         * displaying whatever happened to be cached in the list.
-         */
         window.openPlatformSchoolDetail = async function(id) {
             openModal('School details', `<div class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</div>`, { wide: true });
             try {
@@ -7480,20 +7989,14 @@
                 ` : ''}
 
                 <div class="d-flex flex-wrap gap-2">
-                    <button class="btn-x btn-primary-x btn-sm-x" onclick="changeSchoolPlan('${escJs(school.id)}')"><i class="bi bi-arrow-up-circle"></i> Change plan</button>
-                    <button class="btn-x btn-gold-x btn-sm-x" onclick="extendSchoolSubscription('${escJs(school.id)}')"><i class="bi bi-calendar-plus"></i> Extend +30d</button>
-                    <button class="btn-x btn-outline-x btn-sm-x" onclick="togglePlatformSchool('${escJs(school.id)}')"><i class="bi bi-pause-circle"></i> ${school.status === 'active' ? 'Suspend' : 'Reactivate'}</button>
+                    <button class="btn-x btn-primary-x btn-sm-x" onclick="changeSchoolPlan('${escJs(pickId(school))}')"><i class="bi bi-arrow-up-circle"></i> Change plan</button>
+                    <button class="btn-x btn-gold-x btn-sm-x" onclick="extendSchoolSubscription('${escJs(pickId(school))}')"><i class="bi bi-calendar-plus"></i> Extend +30d</button>
+                    <button class="btn-x btn-outline-x btn-sm-x" onclick="togglePlatformSchool('${escJs(pickId(school))}')"><i class="bi bi-pause-circle"></i> ${school.status === 'active' ? 'Suspend' : 'Reactivate'}</button>
                     <button class="btn-x btn-danger-x btn-sm-x ms-auto" onclick="closeModal()"><i class="bi bi-x"></i> Close</button>
                 </div>
             `;
         }
 
-        /**
-         * The update endpoint expects {subscriptionId, planId, autoRenew}
-         * with real Mongo ObjectIds. We fetch the school's subscription
-         * from /platform/subscriptions and the plans from
-         * /subscriptions/plans so the modal can send real IDs.
-         */
         window.changeSchoolPlan = async function(schoolId) {
             openModal('Change plan', `<div class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading plans...</div>`);
             try {
@@ -7507,7 +8010,7 @@
                     const sid = extractId(s.schoolId);
                     return sid === schoolId;
                 });
-                const subscriptionId = sub ? (sub.id || sub._id || '') : '';
+                const subscriptionId = sub ? pickId(sub) : '';
 
                 if (!plans.length) {
                     document.getElementById('modalBody').innerHTML = `
@@ -7537,7 +8040,7 @@
                     <div class="mb-3"><label class="field-label">New plan</label>
                         <select class="input-x" id="newPlanId">
                             ${plans.map(p => {
-                                const pid = p.id || p._id;
+                                const pid = pickId(p);
                                 const cycleLabel = (p.billingCycle || 'TERMLY').toLowerCase().replace('ly','');
                                 return `<option value="${escJs(pid)}" ${extractId(sub.planId) === pid ? 'selected' : ''}>${escapeHtml(p.name)} — ${money(p.price)}/${cycleLabel}</option>`;
                             }).join('')}
@@ -7587,10 +8090,6 @@
             finally { resetButton(btn); }
         };
 
-        /**
-         * The /extend route now exists — no fallback needed. If it fails
-         * for any reason, we surface the real error.
-         */
         window.extendSchoolSubscription = async function(id) {
             try {
                 const resp = await Api.post('/platform/schools/' + id + '/extend', { days: 30 });
@@ -7606,9 +8105,6 @@
             } catch (e) { showToast('Network error', 'error'); }
         };
 
-        /**
-         * The /toggle route now exists — no fallback needed.
-         */
         window.togglePlatformSchool = async function(id) {
             try {
                 const resp = await Api.put('/platform/schools/' + id + '/toggle');
@@ -7741,6 +8237,8 @@
         window.hapticFeedback = hapticFeedback;
         window.isValidObjectId = isValidObjectId;
         window.extractId = extractId;
+        window.pickId = pickId;
+        window.pickName = pickName;
         window.prettyMethod = prettyMethod;
         window.safeAvg = safeAvg;
         window.dismissSetupChecklist = dismissSetupChecklist;
@@ -7795,28 +8293,48 @@
         window.updateOnlineStatus = updateOnlineStatus;
         window.sendBulkReminder = sendBulkReminder;
 
-        console.log('🏫 SchoolFlow · Production Frontend (v3.4 — Backend-aligned)');
-        console.log('✅ v3.4 backend-alignment fixes:');
-        console.log('   1. sendBulkReminder — surfaces real "queued X of Y" from /defaulters/remind-all');
-        console.log('   2. Per-row single-reminder button removed — no backend endpoint, no fake success');
-        console.log('   3. Class-collection chart — two datasets (expected vs collected) matching backend shape');
-        console.log('   4. Attendance weekly chart — reads data.rates, computes avg from real values');
-        console.log('   5. Payment method labels — prettified via PAYMENT_METHOD_LABELS (no raw enums to users)');
-        console.log('   6. extendSubscription + toggleSchoolStatus — real error handling, no "not yet available" fallback');
-        console.log('   7. changeSchoolPlan — fetches real subscriptionId + planId ObjectIds before submitting');
-        console.log('   8. openPlatformSchoolDetail — clean error state instead of stale cached data fallback');
-        console.log('   9. Health page — handles "degraded" state from new always-200 /health endpoint');
-        console.log('  10. Defaulters list — reads s.fees.owed when provided, falls back to computed value');
-        console.log('  11. Dashboard outstanding — self-heals from defaulter list when /analytics/stats omits it');
-        console.log('  12. seed-sample — honest success/warning based on actual response');
-        console.log('✅ All v3.3 orientation features preserved:');
+        // Credential management (v4.0)
+        window.openCreateCredentialModal = openCreateCredentialModal;
+        window.updateCredentialForm = updateCredentialForm;
+        window.saveCredential = saveCredential;
+        window.openEditCredentialModal = openEditCredentialModal;
+        window.saveEditCredential = saveEditCredential;
+        window.openResetPasswordModal = openResetPasswordModal;
+        window.submitResetPassword = submitResetPassword;
+        window.deleteCredential = deleteCredential;
+        window.toggleBursarApproval = toggleBursarApproval;
+
+        // Exam helpers (v4.0)
+        window.openAddExamModal = openAddExamModal;
+        window.reloadExamSubjects = reloadExamSubjects;
+        window.saveExam = saveExam;
+        window.editExam = editExam;
+        window.deleteExam = deleteExam;
+
+        console.log('🏫 SchoolFlow · Production Frontend (v4.0 — Delegated Approval + Full Backend Alignment)');
+        console.log('✅ v4.0 additions:');
+        console.log('   1. Bursar delegation — proprietor can grant/revoke payment approval per-account');
+        console.log('   2. Api.can() reads delegation flag for approvePayments permission');
+        console.log('   3. Logins & Roles page — creates FORM_TEACHER, SUBJECT_TEACHER, PARENT, BURSAR, ADMIN logins');
+        console.log('   4. pickId() helper — every option builder uses it (no more undefined value= attributes)');
+        console.log('   5. Exam creation guards empty subject — points user to add a subject first');
+        console.log('   6. saveEditClass drops homeroomTeacher — no more silent 400 errors');
+        console.log('   7. saveTemplateUpload guards 4 MB base64 size — no more timeout mid-upload');
+        console.log('   8. saveNewStudent uses unique email fallback to prevent parent dedupe clashes');
+        console.log('✅ v3.4 preserved:');
+        console.log('   • sendBulkReminder surfaces real "queued X of Y"');
+        console.log('   • Class-collection chart two-dataset (expected vs collected)');
+        console.log('   • Attendance weekly reads data.rates');
+        console.log('   • Payment method labels prettified');
+        console.log('   • Health page handles degraded state');
+        console.log('   • changeSchoolPlan fetches real subscriptionId + planId');
+        console.log('   • Dashboard outstanding self-heals from defaulter list');
+        console.log('✅ v3.3 preserved:');
         console.log('   • Setup Progress Checklist, Weekly Summary, Term-End Celebration');
         console.log('   • Haptics, button-anchored confetti, one-shot page animation');
-        console.log('   • Touch-only hover-lift removal, chip-purple removal, two-action FAB');
-        console.log('   • Reduced-motion support, guide links in empty states, tap feedback on rows');
-        console.log('✅ All v3.2 fixes preserved: session auto-heal, parent SMS fallback, score PUT,');
-        console.log('   fee-structure guards, feature detection, staff payload, academic calendar panel.');
+        console.log('   • Reduced-motion support, guide links in empty states');
         console.log('🔐 Role:', Api.getRole());
+        console.log('🎛️  Approve payments:', Api.can('approvePayments'));
         console.log('📶 Online:', navigator.onLine);
     </script>
 </body>
