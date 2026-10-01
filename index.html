@@ -1136,6 +1136,7 @@
             <div class="d-flex align-items-center gap-2"><div class="brand-mark" style="background:linear-gradient(155deg,#1a1a1a,#3a3a3a);"><i class="bi bi-shield-lock-fill"></i></div><div class="topbar-title"><h5>SchoolFlow Platform Admin</h5><div class="eyebrow">Multi-school management</div></div></div>
             <div class="topbar-right">
                 <button class="icon-btn" id="paThemeToggle" title="Toggle theme"><i class="bi bi-moon-fill"></i></button>
+                <button class="btn-x btn-outline-x btn-sm-x" id="paRenewalsBtn"><i class="bi bi-hourglass-split"></i> Renewals</button>
                 <button class="btn-x btn-outline-x btn-sm-x" id="paLogoutBtn"><i class="bi bi-box-arrow-right"></i> Sign out</button>
             </div>
         </header>
@@ -1211,6 +1212,7 @@
         const VISITED_PAGES_KEY = 'schoolflow_visited_pages';
         const SETUP_DISMISSED_KEY = 'schoolflow_setup_dismissed';
         const WEEKLY_SEEN_KEY = 'schoolflow_weekly_seen';
+        const SESSION_STATUS_KEY = 'schoolflow_session_status';
         const REQUEST_TIMEOUT_MS = 45000;
         const ROLE_LABELS = {
             SUPER_ADMIN: 'Super Admin',
@@ -1232,6 +1234,7 @@
             manageStudents: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN'],
             manageAttendance: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER', 'FORM_TEACHER', 'SUBJECT_TEACHER'],
             manageResults: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER', 'FORM_TEACHER', 'SUBJECT_TEACHER'],
+            publishResults: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER'],
             submitPayments: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'BURSAR'],
             viewReports: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER', 'BURSAR'],
             manageSettings: ['SUPER_ADMIN', 'SCHOOL_OWNER'],
@@ -1242,7 +1245,10 @@
             manageInvoices: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'BURSAR'],
             manageSubjects: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER'],
             viewAll: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN'],
-            platformAccess: ['SUPER_ADMIN']
+            platformAccess: ['SUPER_ADMIN'],
+            topUpSms: ['SUPER_ADMIN'],
+            delegateApproval: ['SUPER_ADMIN', 'SCHOOL_OWNER'],
+            viewPortal: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'PARENT']
         };
 
         // =============================================================
@@ -1265,8 +1271,6 @@
 
         // =============================================================
         // 1c. TEMPLATE FIELD CATALOGUE
-        // The pin editor uses this to know what data can be dropped
-        // onto an uploaded report card / receipt template.
         // =============================================================
         const TEMPLATE_FIELD_OPTIONS = {
             report_card: [
@@ -1311,6 +1315,7 @@
             _token: null,
             _refresh: null,
             _user: null,
+            _sessionStatus: null,
             _pendingRequests: 0,
 
             init() {
@@ -1321,6 +1326,8 @@
                     if (r) this._refresh = r;
                     const u = localStorage.getItem('schoolflow_user');
                     if (u) this._user = JSON.parse(u);
+                    const ss = localStorage.getItem(SESSION_STATUS_KEY);
+                    if (ss) this._sessionStatus = JSON.parse(ss);
                 } catch (_) {}
             },
 
@@ -1336,14 +1343,24 @@
                 } catch (_) {}
             },
 
+            setSessionStatus(status) {
+                this._sessionStatus = status;
+                try {
+                    if (status) localStorage.setItem(SESSION_STATUS_KEY, JSON.stringify(status));
+                    else localStorage.removeItem(SESSION_STATUS_KEY);
+                } catch (_) {}
+            },
+
             clearTokens() {
                 this._token = null;
                 this._refresh = null;
                 this._user = null;
+                this._sessionStatus = null;
                 try {
                     localStorage.removeItem(TOKEN_KEY);
                     localStorage.removeItem(REFRESH_KEY);
                     localStorage.removeItem('schoolflow_user');
+                    localStorage.removeItem(SESSION_STATUS_KEY);
                 } catch (_) {}
             },
 
@@ -1360,8 +1377,49 @@
 
             getUser() { return this._user; },
             getRole() { return this._user?.role || null; },
+            getSessionStatus() { return this._sessionStatus; },
 
             can(permission) {
+                // Prefer server-reported effective permissions when available.
+                const ss = this._sessionStatus;
+                if (ss && ss.permissions && typeof ss.permissions === 'object') {
+                    // If backend returns { payments: ['approve'], students: ['write'], ... }
+                    // map permission aliases accordingly; fall back to role check.
+                    const aliasMap = {
+                        approvePayments: ['payments:approve', 'subscriptions:approve'],
+                        closeTerm: ['schools:closeTerm', 'terms:close'],
+                        manageUsers: ['users:write'],
+                        manageStaff: ['staff:write'],
+                        manageStudents: ['students:write'],
+                        manageAttendance: ['attendance:write'],
+                        manageResults: ['results:write'],
+                        publishResults: ['results:publish'],
+                        submitPayments: ['payments:write'],
+                        viewReports: ['reports:read'],
+                        manageSettings: ['schools:write'],
+                        manageReportTemplates: ['reportCards:write'],
+                        manageFeeStructures: ['fees:write'],
+                        manageParents: ['parents:write'],
+                        manageExams: ['exams:write'],
+                        manageInvoices: ['invoices:write'],
+                        manageSubjects: ['subjects:write'],
+                        platformAccess: ['platform:access'],
+                        topUpSms: ['sms:topup'],
+                        delegateApproval: ['users:delegate'],
+                        viewPortal: ['portal:read']
+                    };
+                    const checks = aliasMap[permission];
+                    if (checks && Array.isArray(ss.permissions)) {
+                        return checks.some(c => ss.permissions.includes(c));
+                    }
+                    if (checks && typeof ss.permissions === 'object') {
+                        return checks.some(c => {
+                            const [resource, action] = c.split(':');
+                            return Array.isArray(ss.permissions[resource]) && ss.permissions[resource].includes(action);
+                        });
+                    }
+                }
+                // Fallback: role-based matrix.
                 const role = this.getRole();
                 if (!role) return false;
                 if (role === 'SUPER_ADMIN') return true;
@@ -1424,8 +1482,8 @@
             },
 
             async get(endpoint) { return this._fetch(endpoint); },
-            async post(endpoint, body, extra = {}) { return this._fetch(endpoint, { method: 'POST', body: JSON.stringify(body), ...extra }); },
-            async put(endpoint, body) { return this._fetch(endpoint, { method: 'PUT', body: JSON.stringify(body) }); },
+            async post(endpoint, body, extra = {}) { return this._fetch(endpoint, { method: 'POST', body: JSON.stringify(body || {}), ...extra }); },
+            async put(endpoint, body) { return this._fetch(endpoint, { method: 'PUT', body: JSON.stringify(body || {}) }); },
             async del(endpoint) { return this._fetch(endpoint, { method: 'DELETE' }); },
 
             async upload(endpoint, formData) {
@@ -1459,6 +1517,41 @@
                 } finally {
                     endTopLoader();
                 }
+            },
+
+            // Server-side logout: revoke current refresh token.
+            async serverLogout() {
+                try {
+                    if (this._refresh) {
+                        await this._fetchWithTimeout(API_BASE + '/auth/logout', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ refreshToken: this._refresh })
+                        }, 8000);
+                    }
+                } catch (_) { /* ignore — logout is best effort */ }
+            },
+
+            async serverLogoutAll() {
+                try {
+                    if (this._refresh) {
+                        await this._fetchWithTimeout(API_BASE + '/auth/logout-all', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (this._token || '') },
+                            body: JSON.stringify({ refreshToken: this._refresh })
+                        }, 8000);
+                    }
+                } catch (_) {}
+            },
+
+            async refreshSessionStatus() {
+                try {
+                    const resp = await this.get('/auth/session-status');
+                    if (!resp.ok) return null;
+                    const data = await Api.json(resp);
+                    this.setSessionStatus(data);
+                    return data;
+                } catch (_) { return null; }
             }
         };
         Api.init();
@@ -1549,8 +1642,6 @@
             return String(v);
         }
 
-        // UNIVERSAL student display name — every place that shows a student
-        // must go through this so a missing fullName never becomes "—".
         function displayName(s) {
             if (!s) return 'Unnamed student';
             if (s.fullName && String(s.fullName).trim()) return s.fullName.trim();
@@ -1567,8 +1658,6 @@
             return Math.round(nonZero.reduce((s, v) => s + Number(v), 0) / nonZero.length);
         }
 
-        // Universal array unwrap: handles `[...]`, `{students: [...]}`,
-        // `{items: [...]}`, `{data: [...]}`, and null.
         function toArray(raw, key) {
             if (!raw) return [];
             if (Array.isArray(raw)) return raw;
@@ -1579,7 +1668,6 @@
             return [];
         }
 
-        // pickId — tolerate both mongoose documents and plain objects
         function pickId(obj) {
             if (!obj) return '';
             return obj.id || obj._id || obj.value || '';
@@ -1697,7 +1785,7 @@
                 PRESENT: 'chip-green', ABSENT: 'chip-danger', LATE: 'chip-gold', EXCUSED: 'chip-slate', APPROVED: 'chip-green',
                 PENDING: 'chip-gold', REJECTED: 'chip-danger', ISSUED: 'chip-green',
                 CANCELLED: 'chip-slate', ACTIVE: 'chip-green', EXPIRED: 'chip-danger', SUSPENDED: 'chip-danger',
-                DRAFT: 'chip-slate', PUBLISHED: 'chip-green', CONFIRMED: 'chip-green',
+                DRAFT: 'chip-slate', PUBLISHED: 'chip-green', CONFIRMED: 'chip-green', UNPUBLISHED: 'chip-slate',
                 MALE: 'chip-info', FEMALE: 'chip-info' };
             return `<span class="chip ${map[status]||'chip-slate'}">${escapeHtml(status || '—')}</span>`;
         }
@@ -1970,6 +2058,8 @@
                 { label: 'Create staff login', icon: 'bi-shield-lock', action: () => { closeCommandPalette(); navigateTo('credentials'); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN'] },
                 { label: 'Import students (CSV)', icon: 'bi-upload', action: () => { closeCommandPalette(); openBulkImportStudents(); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN'] },
                 { label: 'Upload report card template', icon: 'bi-palette', action: () => { closeCommandPalette(); openTemplateUploadModal(); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN'] },
+                { label: 'Change password', icon: 'bi-key', action: () => { closeCommandPalette(); openChangePasswordModal(); } },
+                { label: 'Sign out of all devices', icon: 'bi-shield-exclamation', action: () => { closeCommandPalette(); confirmLogoutAll(); } },
                 { label: 'Toggle theme', icon: 'bi-moon', action: () => { closeCommandPalette(); toggleTheme(); } },
                 { label: 'Sign out', icon: 'bi-box-arrow-right', action: () => { closeCommandPalette(); logOut(); } }
             ];
@@ -2101,12 +2191,16 @@
                 }
                 const data = await Api.json(resp);
                 Api.setTokens(data.accessToken, data.refreshToken, data.user);
+                if (data.sessionStatus) Api.setSessionStatus(data.sessionStatus);
                 errorEl.classList.remove('show');
                 hideAllScreens();
                 hapticFeedback(20);
                 const role = data.user?.role;
+                // Fire-and-forget: refresh effective permissions from server.
+                Api.refreshSessionStatus().catch(() => {});
                 if (role === 'SUPER_ADMIN') {
                     document.getElementById('platformApp').style.display = 'flex';
+                    bindPlatformAdminChrome();
                     renderPlatformPage();
                 } else {
                     document.getElementById('app').style.display = 'flex';
@@ -2129,6 +2223,14 @@
             setButtonLoading(btn, 'Saving...');
             try {
                 const resp = await Api.post('/auth/register-first', { username, password });
+                // Backend may not implement this endpoint yet (returns 501).
+                // Handle gracefully with an actionable message instead of a vague error.
+                if (resp.status === 501) {
+                    showToast('This deployment does not support first-time credential setup. Please complete onboarding to create your school instead.', 'warning', 7000);
+                    hideAllScreens();
+                    showRoutingScreen();
+                    return false;
+                }
                 if (!resp.ok) {
                     const msg = await parseErrorResponse(resp);
                     showToast(msg, 'error', 6000);
@@ -2136,10 +2238,13 @@
                 }
                 const data = await Api.json(resp);
                 Api.setTokens(data.accessToken, data.refreshToken, data.user);
+                if (data.sessionStatus) Api.setSessionStatus(data.sessionStatus);
                 hideAllScreens();
                 const role = data.user?.role;
+                Api.refreshSessionStatus().catch(() => {});
                 if (role === 'SUPER_ADMIN') {
                     document.getElementById('platformApp').style.display = 'flex';
+                    bindPlatformAdminChrome();
                     renderPlatformPage();
                 } else {
                     document.getElementById('app').style.display = 'flex';
@@ -2154,11 +2259,76 @@
             }
         }
 
-        function logOut() {
+        async function logOut() {
+            // Revoke server-side refresh token first (best effort), then clear local.
+            try { await Api.serverLogout(); } catch (_) {}
             Api.clearTokens();
+            booted = false;
             hideAllScreens();
             document.getElementById('landingPage').style.display = 'block';
             showToast('Signed out', 'info');
+        }
+
+        async function logOutAll() {
+            try { await Api.serverLogoutAll(); } catch (_) {}
+            Api.clearTokens();
+            booted = false;
+            hideAllScreens();
+            document.getElementById('landingPage').style.display = 'block';
+            showToast('Signed out of all devices', 'info');
+        }
+
+        function confirmLogoutAll() {
+            openModal('Sign out of all devices?', `
+                <p style="font-size:.9rem;">This will revoke every active session for your account — including any phone, tablet, or computer you're currently signed in on. You'll need to sign in again on each device.</p>
+                <div class="d-flex gap-2 mt-3">
+                    <button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                    <button class="btn-x btn-danger-x btn-block-x" onclick="closeModal();logOutAll()"><i class="bi bi-shield-exclamation"></i> Sign out everywhere</button>
+                </div>
+            `);
+        }
+
+        // =============================================================
+        // 9b. CHANGE PASSWORD
+        // =============================================================
+        function openChangePasswordModal() {
+            openModal('Change password', `
+                <div class="mb-3"><label class="field-label">Current password</label><input class="input-x" id="cpCurrent" type="password" placeholder="Current password" /></div>
+                <div class="mb-3"><label class="field-label">New password</label><input class="input-x" id="cpNew" type="password" placeholder="Minimum 6 characters" /></div>
+                <div class="mb-1"><label class="field-label">Confirm new password</label><input class="input-x" id="cpConfirm" type="password" placeholder="Repeat new password" /></div>
+                <p class="eyebrow mt-2"><i class="bi bi-shield-lock me-1"></i>Changing your password will sign you out of other devices.</p>
+                <div class="d-flex gap-2 mt-4">
+                    <button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                    <button class="btn-x btn-primary-x btn-block-x" onclick="submitChangePassword(this)"><i class="bi bi-key"></i> Change password</button>
+                </div>
+            `);
+        }
+
+        async function submitChangePassword(btn) {
+            const currentPassword = document.getElementById('cpCurrent').value;
+            const newPassword = document.getElementById('cpNew').value;
+            const confirmPassword = document.getElementById('cpConfirm').value;
+            if (!currentPassword) { showToast('Enter your current password', 'error'); return; }
+            if (!newPassword || newPassword.length < 6) { showToast('New password must be at least 6 characters', 'error'); return; }
+            if (newPassword !== confirmPassword) { showToast('New passwords do not match', 'error'); return; }
+            setButtonLoading(btn, 'Updating...');
+            try {
+                const resp = await Api.post('/auth/change-password', { currentPassword, newPassword });
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg || 'Could not change password', 'error', 6000);
+                    return;
+                }
+                closeModal();
+                hapticFeedback(25);
+                showToast('Password updated. Signing you in again on this device.', 'success', 4000);
+                // Refresh session state to keep the current device signed in.
+                try { await Api.refreshSessionStatus(); } catch (_) {}
+            } catch (e) {
+                showToast(e.message || 'Network error', 'error');
+            } finally {
+                resetButton(btn);
+            }
         }
 
         // =============================================================
@@ -2187,13 +2357,23 @@
             setButtonLoading(btn, 'Sending...');
             try {
                 const resp = await Api.post('/auth/forgot-password', { email, school, phone });
-                if (!resp.ok) {
-                    closeModal();
-                    showToast('Please contact your school owner or the platform team to reset your password.', 'info', 6000);
-                    return;
+                // The backend may return 200 with { sent: false } when email is not configured.
+                // Honour the actual response, don't lie to the user.
+                let sent = false;
+                let serverMsg = '';
+                if (resp.ok) {
+                    try {
+                        const data = await Api.json(resp);
+                        sent = !!(data && data.sent !== false);
+                        serverMsg = (data && data.message) || '';
+                    } catch (_) { sent = false; }
                 }
                 closeModal();
-                showToast('Reset request sent. Check your email.', 'success');
+                if (sent) {
+                    showToast(serverMsg || 'Reset request sent. Check your email.', 'success');
+                } else {
+                    showToast(serverMsg || 'Self-service reset is not available. Please contact your school owner or the platform team.', 'info', 7000);
+                }
             } catch (e) {
                 closeModal();
                 showToast('Please contact your school owner or the platform team to reset your password.', 'info', 6000);
@@ -2299,6 +2479,7 @@
                 const d = data.data || data;
                 Api.setTokens(d.accessToken, d.refreshToken, d.user);
                 Api.setAccountFlag(true);
+                if (d.sessionStatus) Api.setSessionStatus(d.sessionStatus);
 
                 if (loadSample) {
                     showToast('Loading sample data...', 'info', 4000);
@@ -2319,6 +2500,7 @@
                 hideAllScreens();
                 document.getElementById('app').style.display = 'flex';
                 boot();
+                Api.refreshSessionStatus().catch(() => {});
                 hapticFeedback([20, 40, 20]);
                 fireConfetti(window.innerWidth / 2, window.innerHeight / 3);
                 showToast(`🎉 Welcome to SchoolFlow, ${name}!`, 'success', 5000);
@@ -2360,7 +2542,7 @@
         async function detectFeatures() {
             const checks = await Promise.all([
                 Api.get('/report-cards/templates').then(r => ['reportstudio', r.status !== 404]).catch(() => ['reportstudio', false]),
-                Api.get('/queues/status').then(r => ['queues', r.status !== 404]).catch(() => ['queues', false]),
+                Api.get('/platform/queues/status').then(r => ['queues', r.status !== 404]).catch(() => ['queues', false]),
                 Api.get('/automations').then(r => ['automations', r.status !== 404]).catch(() => ['automations', false]),
                 Api.get('/exams').then(r => ['exams', r.status !== 404]).catch(() => ['exams', false]),
                 Api.get('/documents').then(r => ['documents', r.status !== 404]).catch(() => ['documents', false]),
@@ -2369,6 +2551,7 @@
                 Api.get('/defaulters').then(r => ['defaulters', r.status !== 404]).catch(() => ['defaulters', false]),
                 Api.get('/users').then(r => ['users', r.status !== 404]).catch(() => ['users', false]),
                 Api.get('/academics/subjects').then(r => ['subjects', r.status !== 404]).catch(() => ['subjects', false]),
+                Api.get('/portal/me').then(r => ['portal', r.status !== 404]).catch(() => ['portal', false]),
             ]);
             window._features = Object.fromEntries(checks);
             try { localStorage.setItem(FEATURES_KEY, JSON.stringify(window._features)); } catch (_) {}
@@ -2619,6 +2802,8 @@
             document.getElementById('fabMain').addEventListener('click', toggleFab);
 
             await loadAcademicContext();
+            // Refresh effective permissions from server.
+            Api.refreshSessionStatus().catch(() => {});
 
             const schoolPromise = Api.get('/schools/current').catch(() => null);
             const classesPromise = Api.get('/classes').catch(() => null);
@@ -2668,15 +2853,23 @@
 
         function openAccountMenu() {
             const user = Api.getUser() || { name: '—', role: '—' };
+            const ss = Api.getSessionStatus();
+            const delegate = ss?.approvalDelegation;
+            const delegationLine = delegate && delegate.canApprovePayments && user.role !== 'SCHOOL_OWNER' && user.role !== 'SUPER_ADMIN'
+                ? `<div class="p-2 mb-2" style="background:var(--green-light);border-radius:var(--radius-sm);font-size:.8rem;"><i class="bi bi-shield-check me-1" style="color:var(--green)"></i>Approval rights granted${delegate.expiresAt ? ` · expires ${fmtDate(delegate.expiresAt)}` : ''}</div>`
+                : '';
             openModal('Account', `
                 <div class="d-flex align-items-center gap-3 mb-3">
                     <div class="avatar-ring lg" style="background:${avatarColor(user.id||'user')};">${(user.name||user.username||'U').charAt(0).toUpperCase()}</div>
                     <div><div style="font-weight:700;font-size:1rem;">${escapeHtml(user.name||user.username||'—')}</div><div class="eyebrow">${escapeHtml(ROLE_LABELS[user.role]||user.role||'—')}</div></div>
                 </div>
+                ${delegationLine}
                 <hr class="hr-x" />
                 <div class="d-flex flex-column gap-2">
+                    <button class="btn-x btn-outline-x btn-block-x" onclick="closeModal();openChangePasswordModal()"><i class="bi bi-key"></i> Change password</button>
                     <button class="btn-x btn-outline-x btn-block-x" onclick="closeModal();navigateTo('settings')"><i class="bi bi-gear"></i> Settings</button>
                     <button class="btn-x btn-outline-x btn-block-x" onclick="closeModal();openCommandPalette()"><i class="bi bi-search"></i> Quick search (⌘K)</button>
+                    <button class="btn-x btn-outline-x btn-block-x" onclick="closeModal();confirmLogoutAll()"><i class="bi bi-shield-exclamation"></i> Sign out of all devices</button>
                     <button class="btn-x btn-danger-x btn-block-x" onclick="closeModal();logOut()"><i class="bi bi-box-arrow-right"></i> Sign out</button>
                 </div>
             `);
@@ -2726,15 +2919,27 @@
                     return;
                 }
                 document.getElementById('modalBody').innerHTML = `<div class="d-flex flex-column gap-2">${arr.map(n => `
-                    <div class="p-2" style="background:var(--line-soft);border-radius:var(--radius-sm);">
+                    <div class="p-2" style="background:${n.isRead ? 'var(--line-soft)' : 'var(--green-light)'};border-radius:var(--radius-sm);cursor:pointer;" onclick="markNotificationRead('${escJs(pickId(n))}')">
                         <div style="font-weight:600;font-size:.85rem;">${escapeHtml(n.title || 'Notification')}</div>
                         <div class="eyebrow">${escapeHtml(n.message || '')}</div>
-                        <div class="eyebrow mt-1">${fmtDateTime(n.createdAt)}</div>
+                        <div class="eyebrow mt-1">${fmtDateTime(n.createdAt)} ${n.isRead ? '' : '· <strong style="color:var(--green)">New</strong>'}</div>
                     </div>
                 `).join('')}</div>`;
             } catch (_) {
                 document.getElementById('modalBody').innerHTML = emptyState('bell', 'No notifications', 'You are all caught up.');
             }
+        }
+
+        async function markNotificationRead(id) {
+            if (!id || !isValidObjectId(id)) return;
+            try {
+                const resp = await Api.put('/notifications/' + id + '/read', {});
+                if (resp.ok) {
+                    const dot = document.getElementById('notifDot');
+                    if (dot) dot.style.display = 'none';
+                    openNotifications();
+                }
+            } catch (_) {}
         }
 
         // =============================================================
@@ -3516,30 +3721,55 @@
         }
 
         async function loadParentDashboard() {
+            // Prefer the dedicated /portal/children endpoint when available.
+            // Falls back to /students?view=parent for older backends.
+            let children = [];
+            let usedPortal = false;
             try {
-                const resp = await Api.get('/students');
-                if (!resp.ok) return;
-                const children = toArray(await Api.json(resp));
-                const grid = document.getElementById('parentChildren');
-                if (children.length === 0) {
-                    grid.innerHTML = `<div class="col-12">${emptyState('people','No children linked','Ask your school to link your account.')}</div>`;
-                    return;
+                const resp = await Api.get('/portal/children');
+                if (resp.ok) {
+                    children = toArray(await Api.json(resp));
+                    usedPortal = true;
                 }
-                grid.innerHTML = children.map(c => `
-                    <div class="col-12 col-md-6 col-lg-4"><div class="stat tone-green h-100">
-                        <h6 class="mb-0">${escapeHtml(displayName(c))}</h6>
-                        <div class="eyebrow">${escapeHtml(c.className||'')}</div>
-                        <div class="d-flex justify-content-between mt-2">
-                            <span>Fees: ${money(c.fees?.paid||0)} / ${money(c.fees?.expected||0)}</span>
-                            <span>${statusChip(c.fees?.status||'OUTSTANDING')}</span>
-                        </div>
-                        <div class="d-flex gap-2 mt-2 flex-wrap">
-                            <button class="btn-x btn-outline-x btn-sm-x" onclick="viewStudent('${escJs(pickId(c))}')"><i class="bi bi-eye"></i> View</button>
-                            <button class="btn-x btn-outline-x btn-sm-x" onclick="generateReportCard('${escJs(pickId(c))}')"><i class="bi bi-file-earmark-text"></i> Report</button>
-                        </div>
-                    </div></div>
-                `).join('');
             } catch (_) {}
+
+            if (!usedPortal) {
+                try {
+                    const resp = await Api.get('/students?view=parent');
+                    if (resp.ok) children = toArray(await Api.json(resp));
+                } catch (_) {}
+            }
+
+            const grid = document.getElementById('parentChildren');
+            if (children.length === 0) {
+                grid.innerHTML = `<div class="col-12">${emptyState('people','No children linked','Ask your school to link your account.')}</div>`;
+                return;
+            }
+            grid.innerHTML = children.map(c => {
+                const fees = c.fees || c.financeSummary || {};
+                const att = c.attendance || {};
+                const attRate = att.rate != null ? att.rate : (c.attendanceRate || 0);
+                return `
+                <div class="col-12 col-md-6 col-lg-4"><div class="stat tone-green h-100">
+                    <h6 class="mb-0">${escapeHtml(displayName(c))}</h6>
+                    <div class="eyebrow">${escapeHtml(c.className || '')}</div>
+                    <div class="d-flex justify-content-between mt-2">
+                        <span>Fees: ${money(fees.paid||0)} / ${money(fees.expected||0)}</span>
+                        <span>${statusChip(fees.status||'OUTSTANDING')}</span>
+                    </div>
+                    ${attRate ? `
+                        <div class="mt-2">
+                            <div class="d-flex justify-content-between"><span class="eyebrow">Attendance</span><strong>${Math.round(attRate)}%</strong></div>
+                            <div class="bar-track mt-1"><div class="bar-fill" style="width:${attRate}%;"></div></div>
+                        </div>
+                    ` : ''}
+                    <div class="d-flex gap-2 mt-2 flex-wrap">
+                        <button class="btn-x btn-outline-x btn-sm-x" onclick="viewStudent('${escJs(pickId(c))}')"><i class="bi bi-eye"></i> View</button>
+                        <button class="btn-x btn-outline-x btn-sm-x" onclick="generateReportCard('${escJs(pickId(c))}')"><i class="bi bi-file-earmark-text"></i> Report</button>
+                        <button class="btn-x btn-outline-x btn-sm-x" onclick="printAttendanceReport('${escJs(pickId(c))}')"><i class="bi bi-printer"></i> Attendance</button>
+                    </div>
+                </div></div>
+            `;}).join('');
         }
 
         async function loadHeadTeacherDashboard() {
@@ -3606,6 +3836,7 @@
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
                 <div><h5 style="font-weight:700;">Students</h5><span class="eyebrow" id="studentCount">Loading...</span></div>
                 <div class="d-flex gap-2 flex-wrap">
+                    ${Api.can('manageStudents') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="exportStudentsCsv()"><i class="bi bi-download"></i> Export</button>` : ''}
                     ${Api.can('manageStudents') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="openBulkImportStudents()"><i class="bi bi-upload"></i> Import CSV</button>` : ''}
                     ${Api.can('manageStudents') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="openPromoteStudents()"><i class="bi bi-arrow-up-circle"></i> Promote</button>` : ''}
                     ${Api.can('manageStudents') ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="openAddStudentModal()"><i class="bi bi-plus-lg"></i> Add student</button>` : ''}
@@ -3648,6 +3879,7 @@
                     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
                         <div><h5 style="font-weight:700;">Students</h5><span class="eyebrow">${list.length} enrolled</span></div>
                         <div class="d-flex gap-2 flex-wrap">
+                            ${Api.can('manageStudents') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="exportStudentsCsv()"><i class="bi bi-download"></i> Export</button>` : ''}
                             ${Api.can('manageStudents') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="openBulkImportStudents()"><i class="bi bi-upload"></i> Import CSV</button>` : ''}
                             ${Api.can('manageStudents') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="openPromoteStudents()"><i class="bi bi-arrow-up-circle"></i> Promote</button>` : ''}
                             ${Api.can('manageStudents') ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="openAddStudentModal()"><i class="bi bi-plus-lg"></i> Add student</button>` : ''}
@@ -3686,6 +3918,23 @@
             } catch (e) {
                 document.getElementById('pageContent').innerHTML = `<div class="page-enter no-anim"><div class="panel text-center py-4 text-danger">Failed to load students: ${escapeHtml(e.message)}</div></div>`;
             }
+        };
+
+        window.exportStudentsCsv = async function() {
+            try {
+                const resp = await Api.get('/export/students');
+                if (!resp.ok) throw new Error('Export failed');
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `students-${new Date().toISOString().slice(0,10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                showToast('Students exported', 'success');
+            } catch (e) { showToast('Export failed', 'error'); }
         };
 
         window.filterStudents = function() {
@@ -4735,7 +4984,10 @@
             return `
             <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                 <div><h5 style="font-weight:700;">Payments</h5><span class="eyebrow" id="payTermLabel">${escapeHtml(_pageData.school?.currentTerm || _pageData.school?.term || 'Current term')}</span></div>
-                ${Api.can('submitPayments') ? `<button class="btn-x btn-gold-x btn-sm-x" onclick="openRecordPaymentModal()"><i class="bi bi-plus-lg"></i> Submit payment</button>` : ''}
+                <div class="d-flex gap-2 flex-wrap">
+                    ${Api.can('viewReports') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="exportPaymentsCsv()"><i class="bi bi-download"></i> Export</button>` : ''}
+                    ${Api.can('submitPayments') ? `<button class="btn-x btn-gold-x btn-sm-x" onclick="openRecordPaymentModal()"><i class="bi bi-plus-lg"></i> Submit payment</button>` : ''}
+                </div>
             </div>
             <div class="d-flex gap-2 mb-3" style="border-bottom:1px solid var(--line);">
                 ${['pending','approved','rejected'].map(k=>{
@@ -4780,6 +5032,23 @@
             }
         };
 
+        window.exportPaymentsCsv = async function() {
+            try {
+                const resp = await Api.get('/export/payments');
+                if (!resp.ok) throw new Error('Export failed');
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `payments-${new Date().toISOString().slice(0,10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                showToast('Payments exported', 'success');
+            } catch (e) { showToast('Export failed', 'error'); }
+        };
+
         function paymentActions(p) {
             if (p.status === 'PENDING') {
                 if (!Api.can('approvePayments')) return `<span class="chip chip-gold">Awaiting owner</span>`;
@@ -4821,8 +5090,6 @@
                         return;
                     }
 
-                    // Empty placeholder option — forces a conscious choice and
-                    // prevents the "silently selected student #1 has no invoice" bug.
                     sel.innerHTML = '<option value="">— Select a student —</option>' + arr.map(s =>
                         `<option value="${escJs(pickId(s))}" ${pickId(s) === preselectStudentId ? 'selected' : ''}>${escapeHtml(displayName(s))} — ${escapeHtml(s.className || '')}</option>`
                     ).join('');
@@ -4977,12 +5244,9 @@
         };
 
         // =============================================================
-        // RECEIPT — uses the school's name and logo, and can fall back
-        // to the uploaded receipt template via the print endpoint.
+        // RECEIPT
         // =============================================================
         window.viewReceipt = async function(paymentId) {
-            // Load the school if it isn't in memory yet. The receipt header
-            // uses the school's name and logo, not the platform's.
             if (!_pageData.school?.name) {
                 try {
                     const r = await Api.get('/schools/current');
@@ -5044,7 +5308,6 @@
         };
 
         window.printReceipt = async function(paymentId) {
-            // If we have a paymentId, try the backend-rendered PDF first.
             if (paymentId && isValidObjectId(paymentId)) {
                 try {
                     const url = API_BASE + '/report-cards/render-receipt/' + encodeURIComponent(paymentId);
@@ -5069,7 +5332,6 @@
                 }
             }
 
-            // Fallback: print the on-screen receipt HTML.
             const content = document.getElementById('receiptPrintArea');
             if (!content) return;
             const schoolName = _pageData.school?.name || 'School';
@@ -5505,9 +5767,7 @@
         };
 
         // =============================================================
-        // SCORE ENTRY — subject list follows selected class.
-        // The critical fix: the roster must fire once subjects are
-        // populated, otherwise the page sits on "Pick a class and subject".
+        // SCORE ENTRY
         // =============================================================
         PAGE_RENDERERS.scoreentry = function() {
             return `
@@ -5600,7 +5860,7 @@
                 ).join('')
                 : `<option value="${escJs(activeTid || '')}">${escapeHtml(_pageData.school?.currentTerm || 'Current')}</option>`;
 
-            // 3. Wire the class dropdown to reload subjects, then the roster.
+            // 3. Wire the class dropdown.
             const classSel = document.getElementById('seClass');
             classSel.setAttribute('onchange', '');
             classSel.addEventListener('change', async () => {
@@ -5611,19 +5871,19 @@
                 }
             });
 
-            // 4. Load subjects for the initial class, then wire the roster.
+            // 4. Load subjects for the initial class.
             if (classSel.value) {
                 await loadSubjectsForClass(classSel.value);
             }
 
+            // 5. Wire the subject select.
             const subjectSel = document.getElementById('seSubject');
             subjectSel.setAttribute('onchange', '');
             subjectSel.addEventListener('change', () => {
                 if (classSel.value && subjectSel.value) loadScoreRoster();
             });
 
-            // 5. Fire once for the initial state — this is the fix that
-            //    takes the page off "Pick a class and subject".
+            // 6. Fire once.
             if (classSel.value && subjectSel.value) {
                 loadScoreRoster();
             }
@@ -5847,7 +6107,10 @@
             return `
             <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                 <div><h5 style="font-weight:700;">Invoices</h5><span class="eyebrow">Generate and manage invoices</span></div>
-                ${Api.can('manageInvoices') ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="openGenerateInvoiceModal()"><i class="bi bi-plus-lg"></i> Generate invoice</button>` : ''}
+                <div class="d-flex gap-2 flex-wrap">
+                    ${Api.can('viewReports') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="exportInvoicesCsv()"><i class="bi bi-download"></i> Export</button>` : ''}
+                    ${Api.can('manageInvoices') ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="openGenerateInvoiceModal()"><i class="bi bi-plus-lg"></i> Generate invoice</button>` : ''}
+                </div>
             </div>
             <div class="panel mb-3" style="background:var(--gold-light);border-left:3px solid var(--gold);">
                 <div class="d-flex gap-2 align-items-start">
@@ -5875,6 +6138,23 @@
             } catch (e) {
                 document.getElementById('invoiceBody').innerHTML = `<tr><td colspan="5" class="text-center py-4 text-danger">Failed to load invoices: ${escapeHtml(e.message)}</td></tr>`;
             }
+        };
+
+        window.exportInvoicesCsv = async function() {
+            try {
+                const resp = await Api.get('/export/invoices');
+                if (!resp.ok) throw new Error('Export failed');
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `invoices-${new Date().toISOString().slice(0,10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                showToast('Invoices exported', 'success');
+            } catch (e) { showToast('Export failed', 'error'); }
         };
 
         function renderInvoiceTable(invoices) {
@@ -6051,7 +6331,7 @@
             <div class="panel mb-3" id="smsCreditsPanel" style="display:none;">
                 <div class="d-flex justify-content-between align-items-center">
                     <div><h6 class="mb-0">SMS Credits</h6><span class="eyebrow">Send SMS reminders and notifications</span></div>
-                    <button class="btn-x btn-gold-x btn-sm-x" onclick="openSMSTopUpModal()"><i class="bi bi-plus-circle"></i> Top up</button>
+                    ${Api.can('topUpSms') ? `<button class="btn-x btn-gold-x btn-sm-x" onclick="openSMSTopUpModal()"><i class="bi bi-plus-circle"></i> Top up</button>` : ''}
                 </div>
                 <div class="d-flex justify-content-between align-items-center mt-2">
                     <span style="font-size:1.1rem;font-weight:700;" id="smsBalance">—</span>
@@ -6199,8 +6479,16 @@
         };
 
         window.openSMSTopUpModal = function() {
+            // SMS top-up credits your balance WITHOUT a verified payment.
+            // Backend restricts this to super admins. Guard the frontend too.
+            if (!Api.can('topUpSms')) {
+                showToast('Only platform admins can top up SMS credits from here. Please contact support.', 'warning', 6000);
+                return;
+            }
             openModal('Top up SMS credits', `
-                <p class="eyebrow mb-3">Select a package to purchase SMS credits.</p>
+                <div class="p-3 mb-3" style="background:var(--gold-light);border-radius:var(--radius-sm);">
+                    <p style="font-size:.85rem;margin:0;"><strong>Admin-only action.</strong> This will credit your school's SMS balance directly without a payment. Only use this for internal testing or goodwill credits.</p>
+                </div>
                 <div class="d-flex flex-column gap-2">
                     ${[[5000,250],[10000,500],[20000,1000],[50000,2500]].map(([a,c]) => `<button class="sms-package-btn" onclick="processSMSTopUp(${a})"><span><span class="pkg-price">${moneyNaira(a)}</span><span class="pkg-credits"> · ${c} credits</span></span><i class="bi bi-arrow-right"></i></button>`).join('')}
                 </div>
@@ -6617,7 +6905,7 @@
             } catch (e) { showToast('Network error', 'error'); }
         };
 
-        // --- QUEUES ---
+        // --- QUEUES (moved to /platform/queues/*) ---
         PAGE_RENDERERS.queues = function() {
             return `
             <div class="d-flex justify-content-between align-items-center mb-3">
@@ -6632,7 +6920,7 @@
 
         POST_RENDER_HOOKS.queues = async function() {
             try {
-                const resp = await Api.get('/queues/status');
+                const resp = await Api.get('/platform/queues/status');
                 if (!resp.ok) throw new Error(await parseErrorResponse(resp));
                 const queues = await Api.json(resp);
                 const arr = toArray(queues);
@@ -6666,7 +6954,7 @@
             openModal(`Jobs in ${queueName}`, `<div class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</div>`);
             (async () => {
                 try {
-                    const resp = await Api.get('/queues/' + queueName + '/jobs');
+                    const resp = await Api.get('/platform/queues/' + encodeURIComponent(queueName) + '/jobs');
                     if (resp.ok) {
                         const jobs = toArray(await Api.json(resp));
                         const body = document.getElementById('modalBody');
@@ -6694,7 +6982,7 @@
 
         window.viewJobDetail = async function(queueName, jobId) {
             try {
-                const resp = await Api.get('/queues/' + queueName + '/jobs/' + jobId);
+                const resp = await Api.get('/platform/queues/' + encodeURIComponent(queueName) + '/jobs/' + encodeURIComponent(jobId));
                 if (!resp.ok) { showToast('Job not found', 'error'); return; }
                 const job = await Api.json(resp);
                 openModal('Job Details', `
@@ -6706,7 +6994,7 @@
 
         window.retryJob = async function(queueName, jobId) {
             try {
-                const resp = await Api.post('/queues/' + queueName + '/retry/' + jobId);
+                const resp = await Api.post('/platform/queues/' + encodeURIComponent(queueName) + '/retry/' + encodeURIComponent(jobId));
                 if (!resp.ok) { showToast('Retry failed', 'error'); return; }
                 showToast('Job retried', 'success');
                 closeModal();
@@ -6716,7 +7004,7 @@
 
         window.pauseQueue = async function(queueName) {
             try {
-                const resp = await Api.post('/queues/' + queueName + '/pause');
+                const resp = await Api.post('/platform/queues/' + encodeURIComponent(queueName) + '/pause');
                 if (!resp.ok) { showToast('Failed to pause queue', 'error'); return; }
                 showToast('Queue paused', 'info');
                 renderPage('queues');
@@ -6725,7 +7013,7 @@
 
         window.resumeQueue = async function(queueName) {
             try {
-                const resp = await Api.post('/queues/' + queueName + '/resume');
+                const resp = await Api.post('/platform/queues/' + encodeURIComponent(queueName) + '/resume');
                 if (!resp.ok) { showToast('Failed to resume queue', 'error'); return; }
                 showToast('Queue resumed', 'success');
                 renderPage('queues');
@@ -6857,7 +7145,7 @@
             } catch (e) { showToast('Network error', 'error'); }
         };
 
-        // --- RESULTS ---
+        // --- RESULTS (now with publish/unpublish) ---
         PAGE_RENDERERS.results = function() {
             return `
             <div class="row g-3 mb-3">
@@ -6876,13 +7164,14 @@
                     <h6>Subject performance</h6>
                     <div class="d-flex gap-2 flex-wrap">
                         <button class="btn-x btn-outline-x btn-sm-x" onclick="navigateTo('scoreentry')"><i class="bi bi-pencil-square"></i> Enter scores</button>
+                        ${Api.can('publishResults') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="openPublishResultsModal()"><i class="bi bi-broadcast"></i> Publish / Unpublish</button>` : ''}
                         <button class="btn-x btn-outline-x btn-sm-x" onclick="generateSchoolWideReportCards(this)"><i class="bi bi-collection"></i> Compile ALL report cards</button>
                         <button class="btn-x btn-primary-x btn-sm-x" onclick="openBulkReportModal()"><i class="bi bi-file-earmark-text"></i> Generate for class</button>
                     </div>
                 </div>
                 <div class="chart-box"><canvas id="resultsChart"></canvas></div>
             </div>
-            <div class="panel" style="padding:0;"><div class="table-wrap"><table class="tbl"><thead><tr><th>Student</th><th>Class</th><th>Average</th><th>Grade</th><th></th></tr></thead><tbody id="resultsBody"><tr><td colspan="5" class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</td></tr></tbody></table></div></div>
+            <div class="panel" style="padding:0;"><div class="table-wrap"><table class="tbl"><thead><tr><th>Student</th><th>Class</th><th>Average</th><th>Grade</th><th>Published</th><th></th></tr></thead><tbody id="resultsBody"><tr><td colspan="6" class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</td></tr></tbody></table></div></div>
             `;
         };
 
@@ -6908,7 +7197,7 @@
                     document.getElementById('resAvg').textContent = '—';
                     document.getElementById('resHigh').textContent = '—';
                     document.getElementById('resLow').textContent = '—';
-                    document.getElementById('resultsBody').innerHTML = `<tr><td colspan="5" class="text-center py-4">${emptyState('bar-chart','No results','Enter scores for students to see performance analytics.',`<button class="btn-x btn-primary-x" onclick="navigateTo('scoreentry')"><i class="bi bi-pencil-square"></i> Enter scores</button>`)}</td></tr>`;
+                    document.getElementById('resultsBody').innerHTML = `<tr><td colspan="6" class="text-center py-4">${emptyState('bar-chart','No results','Enter scores for students to see performance analytics.',`<button class="btn-x btn-primary-x" onclick="navigateTo('scoreentry')"><i class="bi bi-pencil-square"></i> Enter scores</button>`)}</td></tr>`;
                     return;
                 }
                 const avgs = arr.map(r => r.average || r.total || 0);
@@ -6917,15 +7206,23 @@
                 document.getElementById('resHigh').textContent = Math.max(...avgs) + '%';
                 document.getElementById('resLow').textContent = Math.min(...avgs) + '%';
                 const tbody = document.getElementById('resultsBody');
-                tbody.innerHTML = arr.slice(0, 50).map(r => `
+                tbody.innerHTML = arr.slice(0, 50).map(r => {
+                    const published = !!(r.isPublished || r.publishedAt);
+                    const studentId = extractId(r.studentId);
+                    const cid = extractId(r.classId);
+                    return `
                     <tr>
                         <td data-label="Student"><strong>${escapeHtml(r.studentName || displayName(r.studentId))}</strong></td>
                         <td data-label="Class">${escapeHtml(r.className||r.classId?.name||'—')}</td>
                         <td data-label="Average" class="num">${r.average || r.total || 0}%</td>
                         <td data-label="Grade">${gradeChip(r.grade||'—')}</td>
-                        <td><button class="btn-x btn-outline-x btn-sm-x" onclick="generateReportCard('${escJs(extractId(r.studentId))}')"><i class="bi bi-file-earmark-text"></i> Report card</button></td>
+                        <td data-label="Published">${published ? '<span class="chip chip-green">Published</span>' : '<span class="chip chip-slate">Draft</span>'}</td>
+                        <td><div class="d-flex gap-1">
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="generateReportCard('${escJs(studentId)}')" aria-label="Report card"><i class="bi bi-file-earmark-text"></i></button>
+                            ${Api.can('publishResults') ? `<button class="btn-x ${published?'btn-gold-x':'btn-outline-x'} btn-sm-x" onclick="toggleResultPublish('${escJs(pickId(r))}', ${published})" aria-label="${published?'Unpublish':'Publish'}"><i class="bi ${published?'bi-eye-slash':'bi-broadcast'}"></i></button>` : ''}
+                        </div></td>
                     </tr>
-                `).join('');
+                `;}).join('');
                 const subMap = {};
                 arr.forEach(r => {
                     (r.subjects || []).forEach(sub => {
@@ -6949,8 +7246,81 @@
                     });
                 }
             } catch (e) {
-                document.getElementById('resultsBody').innerHTML = `<tr><td colspan="5" class="text-center py-4 text-danger">Failed to load results: ${escapeHtml(e.message)}</td></tr>`;
+                document.getElementById('resultsBody').innerHTML = `<tr><td colspan="6" class="text-center py-4 text-danger">Failed to load results: ${escapeHtml(e.message)}</td></tr>`;
             }
+        };
+
+        window.toggleResultPublish = async function(id, isPublished) {
+            try {
+                const endpoint = isPublished ? `/results/${id}/unpublish` : `/results/${id}/publish`;
+                const resp = await Api.post(endpoint);
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg || 'Action failed', 'error', 6000);
+                    return;
+                }
+                showToast(isPublished ? 'Result unpublished' : 'Result published to parents', 'success');
+                renderPage('results');
+            } catch (e) { showToast('Network error', 'error'); }
+        };
+
+        window.openPublishResultsModal = async function() {
+            // Get list of classes to choose from.
+            let classes = [];
+            try {
+                const resp = await Api.get('/classes');
+                if (resp.ok) classes = toArray(await Api.json(resp));
+            } catch (_) {}
+            const ctx = ensureAcademicContext();
+            if (!ctx) return;
+
+            openModal('Publish results', `
+                <p class="eyebrow mb-3">Publishing a set of results makes them visible to parents via the Parent Portal. Only publish once you've verified the scores.</p>
+                <div class="mb-3">
+                    <label class="field-label">Scope</label>
+                    <select class="input-x" id="pubScope" onchange="document.getElementById('pubClassWrap').style.display = this.value === 'class' ? '' : 'none';">
+                        <option value="session">All results for the current term</option>
+                        <option value="class">One class only</option>
+                    </select>
+                </div>
+                <div class="mb-1" id="pubClassWrap" style="display:none;">
+                    <label class="field-label">Class</label>
+                    <select class="input-x" id="pubClass">
+                        ${classes.map(c => `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="d-flex gap-2 mt-4">
+                    <button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                    <button class="btn-x btn-primary-x btn-block-x" onclick="submitPublishResults(this)"><i class="bi bi-broadcast"></i> Publish</button>
+                </div>
+            `);
+        };
+
+        window.submitPublishResults = async function(btn) {
+            const ctx = ensureAcademicContext();
+            if (!ctx) return;
+            const scope = document.getElementById('pubScope').value;
+            const classId = scope === 'class' ? document.getElementById('pubClass').value : null;
+            if (scope === 'class' && !classId) { showToast('Pick a class', 'error'); return; }
+            setButtonLoading(btn, 'Publishing...');
+            try {
+                const resp = await Api.post('/results/publish', {
+                    sessionId: ctx.sessionId,
+                    termId: ctx.termId,
+                    classId: classId || undefined
+                });
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg || 'Publish failed', 'error', 6000);
+                    return;
+                }
+                const data = await Api.json(resp).catch(() => ({}));
+                closeModal();
+                hapticFeedback([25, 25]);
+                showToast(`Published ${data.count || data.published || 'results'} to parents`, 'success');
+                renderPage('results');
+            } catch (e) { showToast(e.message || 'Network error', 'error'); }
+            finally { resetButton(btn); }
         };
 
         window.openBulkReportModal = function() {
@@ -7131,7 +7501,12 @@
             </div>
             <div class="row g-3">
                 <div class="col-lg-6"><div class="panel h-100"><h6 class="mb-3">Class distribution</h6><div class="chart-box"><canvas id="reportsChart"></canvas></div></div></div>
-                <div class="col-lg-6"><div class="panel h-100"><h6 class="mb-3">Export</h6><div class="d-flex flex-column gap-2"><button class="btn-x btn-outline-x" onclick="exportCSV()"><i class="bi bi-file-earmark-spreadsheet"></i> Export CSV</button><button class="btn-x btn-outline-x" onclick="window.print()"><i class="bi bi-printer"></i> Print summary</button></div><hr class="hr-x" /><p class="eyebrow mb-0"><i class="bi bi-info-circle me-1"></i>Reports combine financial, academic and attendance data.</p></div></div>
+                <div class="col-lg-6"><div class="panel h-100"><h6 class="mb-3">Export</h6><div class="d-flex flex-column gap-2">
+                    <button class="btn-x btn-outline-x" onclick="exportStudentsCsv()"><i class="bi bi-file-earmark-spreadsheet"></i> Export students (CSV)</button>
+                    <button class="btn-x btn-outline-x" onclick="exportPaymentsCsv()"><i class="bi bi-file-earmark-spreadsheet"></i> Export payments (CSV)</button>
+                    <button class="btn-x btn-outline-x" onclick="exportInvoicesCsv()"><i class="bi bi-file-earmark-spreadsheet"></i> Export invoices (CSV)</button>
+                    <button class="btn-x btn-outline-x" onclick="window.print()"><i class="bi bi-printer"></i> Print summary</button>
+                </div><hr class="hr-x" /><p class="eyebrow mb-0"><i class="bi bi-info-circle me-1"></i>Reports combine financial, academic and attendance data.</p></div></div>
             </div>
             `;
         };
@@ -7352,6 +7727,7 @@
                 }
                 grid.innerHTML = arr.map(s => {
                     const fullName = s.fullName || `${s.firstName || ''} ${s.lastName || ''}`.trim() || s.name || '—';
+                    const hasLogin = !!s.hasLogin || !!s.userId;
                     return `
                     <div class="col-12 col-md-6 col-lg-4"><div class="stat tone-slate h-100">
                         <div class="d-flex align-items-start gap-2">
@@ -7361,7 +7737,9 @@
                                 <div class="eyebrow">${escapeHtml(s.role)}</div>
                                 <div class="eyebrow">${escapeHtml(s.email || s.phone || '')}</div>
                                 ${s.department?`<span class="chip chip-slate mt-1">${escapeHtml(s.department)}</span>`:''}
-                                <div class="d-flex gap-1 mt-2">
+                                ${hasLogin ? '<span class="chip chip-green mt-1">Has login</span>' : ''}
+                                <div class="d-flex gap-1 mt-2 flex-wrap">
+                                    ${!hasLogin && Api.can('manageUsers') ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="openStaffLoginModal('${escJs(pickId(s))}','${escJs(fullName)}')"><i class="bi bi-shield-lock"></i> Create login</button>` : ''}
                                     <button class="btn-x btn-outline-x btn-sm-x" onclick="openEditStaffModal('${escJs(pickId(s))}')" aria-label="Edit"><i class="bi bi-pencil"></i></button>
                                     <button class="btn-x btn-danger-x btn-sm-x" onclick="deleteStaff('${escJs(pickId(s))}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>
                                 </div>
@@ -7372,6 +7750,62 @@
             } catch (e) {
                 document.getElementById('staffGrid').innerHTML = `<div class="col-12 text-center py-4 text-danger">Failed to load staff: ${escapeHtml(e.message)}</div>`;
             }
+        };
+
+        window.openStaffLoginModal = function(staffId, staffName) {
+            if (!Api.can('manageUsers')) { showToast('You do not have permission to create logins.', 'error'); return; }
+            openModal('Create login for ' + staffName, `
+                <p class="eyebrow mb-3">Give <strong>${escapeHtml(staffName)}</strong> a SchoolFlow login. You choose their role and initial password.</p>
+                <div class="mb-3">
+                    <label class="field-label">Role</label>
+                    <select class="input-x" id="staffLoginRole">
+                        <option value="FORM_TEACHER">Form Teacher</option>
+                        <option value="SUBJECT_TEACHER">Subject Teacher</option>
+                        <option value="HEAD_TEACHER">Head Teacher</option>
+                        <option value="BURSAR">Bursar</option>
+                        <option value="ADMIN">Admin</option>
+                        <option value="STAFF">Staff</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="field-label">Username</label>
+                    <input class="input-x" id="staffLoginUsername" placeholder="e.g. adeyemi" />
+                </div>
+                <div class="mb-1">
+                    <label class="field-label">Initial password</label>
+                    <input class="input-x" id="staffLoginPassword" type="password" placeholder="Min 6 characters" />
+                </div>
+                <div class="d-flex gap-2 mt-4">
+                    <button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                    <button class="btn-x btn-primary-x btn-block-x" onclick="submitStaffLogin('${escJs(staffId)}', this)"><i class="bi bi-shield-check"></i> Create login</button>
+                </div>
+            `);
+        };
+
+        window.submitStaffLogin = async function(staffId, btn) {
+            const role = document.getElementById('staffLoginRole').value;
+            const username = document.getElementById('staffLoginUsername').value.trim();
+            const password = document.getElementById('staffLoginPassword').value;
+            if (!username || username.length < 3) { showToast('Username must be at least 3 characters', 'error'); return; }
+            if (!password || password.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
+            setButtonLoading(btn, 'Creating...');
+            try {
+                // Prefer dedicated staff-login endpoint if it exists; fall back to generic /users.
+                let resp = await Api.post(`/staff/${staffId}/login`, { role, username, password });
+                if (!resp.ok && resp.status === 404) {
+                    resp = await Api.post('/users', { role, username, password, staffId, name: document.getElementById('staffLoginUsername').value.trim() });
+                }
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg, 'error', 6000);
+                    return;
+                }
+                closeModal();
+                hapticFeedback(25);
+                showToast('Staff login created', 'success');
+                renderPage('staff');
+            } catch (e) { showToast(e.message || 'Network error', 'error'); }
+            finally { resetButton(btn); }
         };
 
         window.openAddStaffModal = function() {
@@ -7480,7 +7914,7 @@
         };
 
         // =============================================================
-        // LOGINS & ROLES (CREDENTIALS) PAGE
+        // LOGINS & ROLES (CREDENTIALS)
         // =============================================================
         PAGE_RENDERERS.credentials = function() {
             if (!Api.can('manageUsers')) {
@@ -7504,8 +7938,8 @@
                     </div>
                 </div>
                 <div class="panel" style="padding:0;"><div class="table-wrap"><table class="tbl">
-                    <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Scope</th><th>Status</th><th></th></tr></thead>
-                    <tbody id="credBody"><tr><td colspan="6" class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</td></tr></tbody>
+                    <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Scope</th><th>Approval</th><th>Status</th><th></th></tr></thead>
+                    <tbody id="credBody"><tr><td colspan="7" class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</td></tr></tbody>
                 </table></div></div>
             `;
         };
@@ -7520,7 +7954,7 @@
                 document.getElementById('credCount').textContent = arr.length + ' login' + (arr.length === 1 ? '' : 's');
                 const tbody = document.getElementById('credBody');
                 if (arr.length === 0) {
-                    tbody.innerHTML = `<tr><td colspan="6" class="text-center py-4">${emptyState('shield-lock','No logins yet','Create logins for form teachers, bursars, and parents.')}</td></tr>`;
+                    tbody.innerHTML = `<tr><td colspan="7" class="text-center py-4">${emptyState('shield-lock','No logins yet','Create logins for form teachers, bursars, and parents.')}</td></tr>`;
                     return;
                 }
                 const ROLE_LABEL = {
@@ -7537,13 +7971,17 @@
                                 ? `Parent of ${escapeHtml(u.parentName)}`
                                 : 'Full'));
                     const locked = ['SCHOOL_OWNER', 'SUPER_ADMIN'].includes(u.role);
+                    const canDelegate = u.role === 'BURSAR' && Api.can('delegateApproval');
+                    const deleg = u.canApprovePayments ? '<span class="chip chip-green">Granted</span>'
+                        : (canDelegate ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="openDelegateApprovalModal('${escJs(pickId(u))}','${escJs(u.name||u.username)}')">Grant</button>` : '<span class="eyebrow">—</span>');
                     return `<tr>
                         <td data-label="Name"><strong>${escapeHtml(u.name)}</strong></td>
                         <td data-label="Username">${escapeHtml(u.username)}</td>
                         <td data-label="Role"><span class="chip chip-slate">${escapeHtml(ROLE_LABEL[u.role] || u.role)}</span></td>
                         <td data-label="Scope" class="eyebrow">${scope}</td>
+                        <td data-label="Approval">${deleg}</td>
                         <td data-label="Status">${u.isActive ? '<span class="chip chip-green">Active</span>' : '<span class="chip chip-slate">Disabled</span>'}</td>
-                        <td>${locked ? '<span class="eyebrow">—</span>' : `<div class="d-flex gap-1">
+                        <td>${locked ? '<span class="eyebrow">—</span>' : `<div class="d-flex gap-1 flex-wrap">
                             <button class="btn-x btn-outline-x btn-sm-x" onclick="openEditCredentialModal('${escJs(pickId(u))}')" aria-label="Edit"><i class="bi bi-pencil"></i></button>
                             <button class="btn-x btn-outline-x btn-sm-x" onclick="openResetPasswordModal('${escJs(pickId(u))}','${escJs(u.username)}')" aria-label="Reset password"><i class="bi bi-key"></i></button>
                             <button class="btn-x btn-danger-x btn-sm-x" onclick="deleteCredential('${escJs(pickId(u))}','${escJs(u.username)}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>
@@ -7551,8 +7989,47 @@
                     </tr>`;
                 }).join('');
             } catch (e) {
-                document.getElementById('credBody').innerHTML = `<tr><td colspan="6" class="text-center py-4 text-danger">${escapeHtml(e.message)}</td></tr>`;
+                document.getElementById('credBody').innerHTML = `<tr><td colspan="7" class="text-center py-4 text-danger">${escapeHtml(e.message)}</td></tr>`;
             }
+        };
+
+        window.openDelegateApprovalModal = function(userId, userName) {
+            if (!Api.can('delegateApproval')) { showToast('Only proprietors can delegate approval rights.', 'error'); return; }
+            openModal('Delegate payment approval', `
+                <p class="eyebrow mb-3">Grant <strong>${escapeHtml(userName)}</strong> temporary rights to approve payments. Useful when you're away.</p>
+                <div class="mb-3">
+                    <label class="field-label">Duration</label>
+                    <select class="input-x" id="delegDuration">
+                        <option value="7">7 days</option>
+                        <option value="14">14 days</option>
+                        <option value="30" selected>30 days</option>
+                        <option value="90">90 days</option>
+                    </select>
+                </div>
+                <div class="d-flex gap-2 mt-4">
+                    <button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                    <button class="btn-x btn-primary-x btn-block-x" onclick="submitDelegateApproval('${escJs(userId)}', this)"><i class="bi bi-shield-check"></i> Grant approval rights</button>
+                </div>
+            `);
+        };
+
+        window.submitDelegateApproval = async function(userId, btn) {
+            const days = Number(document.getElementById('delegDuration').value) || 30;
+            const expiresAt = new Date(Date.now() + days * 86400000).toISOString();
+            setButtonLoading(btn, 'Granting...');
+            try {
+                const resp = await Api.put('/users/' + userId + '/approval-delegation', { canApprovePayments: true, expiresAt });
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg || 'Could not delegate approval rights', 'error', 6000);
+                    return;
+                }
+                closeModal();
+                hapticFeedback(25);
+                showToast(`Approval rights granted for ${days} days`, 'success');
+                renderPage('credentials');
+            } catch (e) { showToast(e.message || 'Network error', 'error'); }
+            finally { resetButton(btn); }
         };
 
         window.openCreateCredentialModal = async function() {
@@ -7681,7 +8158,6 @@
         };
 
         window.openEditCredentialModal = async function(id) {
-            // Fetch users list and find the target.
             try {
                 const resp = await Api.get('/users');
                 if (!resp.ok) throw new Error('Could not load user');
@@ -7872,7 +8348,7 @@
         };
 
         // =============================================================
-        // REPORT STUDIO — with field-aware pin placement
+        // REPORT STUDIO
         // =============================================================
         PAGE_RENDERERS.reportstudio = function() {
             return `
@@ -8123,7 +8599,6 @@
                 container.appendChild(dot);
             });
 
-            // Also render a list below for clarity.
             const list = document.getElementById('tplPinList');
             if (list) {
                 if ((window._tplPins || []).length === 0) {
@@ -8224,13 +8699,12 @@
         };
 
         // =============================================================
-        // GENERATE REPORT CARD — opens the backend-rendered PDF
+        // GENERATE REPORT CARD
         // =============================================================
         window.generateReportCard = async function(studentId) {
             const ctx = ensureAcademicContext();
             if (!ctx) return;
 
-            // Show a spinner while the PDF is being built.
             openModal('Report card', `
                 <div class="text-center py-4">
                     <i class="bi bi-arrow-repeat spinning" style="font-size:1.5rem;color:var(--green);"></i>
@@ -8239,14 +8713,12 @@
             `);
 
             try {
-                // 1. Ensure the JSON report card exists (it drives the data).
                 await Api.post('/report-cards/generate', {
                     studentId,
                     sessionId: ctx.sessionId,
                     termId: ctx.termId,
                 });
 
-                // 2. Fetch the rendered PDF from the template endpoint.
                 const url = API_BASE
                     + '/report-cards/render/' + encodeURIComponent(studentId)
                     + '?sessionId=' + encodeURIComponent(ctx.sessionId)
@@ -8259,7 +8731,6 @@
                 });
 
                 if (!resp.ok) {
-                    // No template — fall back to the built-in HTML layout.
                     closeModal();
                     await renderFallbackReportCard(studentId, ctx);
                     return;
@@ -8269,11 +8740,8 @@
                 const blobUrl = URL.createObjectURL(blob);
 
                 closeModal();
-                // Open the PDF in a new tab. On mobile this triggers the
-                // browser's PDF viewer, which lets the user print or save.
                 const w = window.open(blobUrl, '_blank');
                 if (!w) {
-                    // Popup blocked — fall back to download.
                     const a = document.createElement('a');
                     a.href = blobUrl;
                     a.download = `report-card-${studentId}.pdf`;
@@ -8283,12 +8751,10 @@
             } catch (e) {
                 closeModal();
                 showToast(e.message || 'Failed to generate report card', 'error');
-                // Fall back to HTML
                 try { await renderFallbackReportCard(studentId, ctx); } catch (_) {}
             }
         };
 
-        // Fallback HTML report card when no template exists
         async function renderFallbackReportCard(studentId, ctx) {
             const resp = await Api.post('/report-cards/generate', {
                 studentId,
@@ -8409,50 +8875,58 @@
         };
 
         POST_RENDER_HOOKS.parentportal = async function() {
+            let children = [];
             try {
-                const resp = await Api.get('/students?view=parent');
-                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
-                const children = await Api.json(resp);
-                const arr = toArray(children);
-                const grid = document.getElementById('parentChildren');
-                if (arr.length === 0) {
-                    grid.innerHTML = `<div class="col-12">${emptyState('people','No children linked','Ask your school to link your account.')}</div>`;
-                    return;
+                // Prefer the dedicated /portal endpoints.
+                const resp = await Api.get('/portal/children');
+                if (resp.ok) {
+                    children = toArray(await Api.json(resp));
+                } else {
+                    const fallback = await Api.get('/students?view=parent');
+                    if (fallback.ok) children = toArray(await Api.json(fallback));
                 }
-                let html = '';
-                for (const c of arr) {
-                    let attHTML = '';
-                    try {
-                        const attResp = await Api.get('/attendance/summary/' + pickId(c));
-                        if (attResp.ok) {
-                            const att = await Api.json(attResp);
-                            attHTML = `
-                                <div class="mt-2">
-                                    <div class="d-flex justify-content-between"><span class="eyebrow">Attendance</span><span><strong>${Math.round(att.rate||0)}%</strong></span></div>
-                                    <div class="bar-track"><div class="bar-fill" style="width:${att.rate||0}%;"></div></div>
-                                    <div class="d-flex justify-content-between mt-1"><span class="eyebrow">Present: ${att.present||0}</span><span class="eyebrow">Absent: ${att.absent||0}</span></div>
-                                </div>
-                            `;
-                        }
-                    } catch (_) {}
-                    html += `
-                        <div class="col-12 col-md-6 col-lg-4"><div class="stat tone-green h-100">
-                            <h6 class="mb-0">${escapeHtml(displayName(c))}</h6>
-                            <div class="eyebrow">${escapeHtml(c.className||'')}</div>
-                            <div class="d-flex justify-content-between mt-2"><span>Fees: ${money(c.fees?.paid||0)} / ${money(c.fees?.expected||0)}</span><span>${statusChip(c.fees?.status||'OUTSTANDING')}</span></div>
-                            ${attHTML}
-                            <div class="d-flex gap-2 mt-2 flex-wrap">
-                                <button class="btn-x btn-outline-x btn-sm-x" onclick="viewStudent('${escJs(pickId(c))}')"><i class="bi bi-eye"></i> View</button>
-                                <button class="btn-x btn-outline-x btn-sm-x" onclick="generateReportCard('${escJs(pickId(c))}')"><i class="bi bi-file-earmark-text"></i> Report</button>
-                                <button class="btn-x btn-outline-x btn-sm-x" onclick="printAttendanceReport('${escJs(pickId(c))}')"><i class="bi bi-printer"></i> Attendance</button>
-                            </div>
-                        </div></div>
-                    `;
-                }
-                grid.innerHTML = html;
-            } catch (e) {
-                document.getElementById('parentChildren').innerHTML = `<div class="col-12 text-center py-4 text-danger">${escapeHtml(e.message)}</div>`;
+            } catch (_) {
+                try {
+                    const fallback = await Api.get('/students?view=parent');
+                    if (fallback.ok) children = toArray(await Api.json(fallback));
+                } catch (_) {}
             }
+            const grid = document.getElementById('parentChildren');
+            if (children.length === 0) {
+                grid.innerHTML = `<div class="col-12">${emptyState('people','No children linked','Ask your school to link your account.')}</div>`;
+                return;
+            }
+            let html = '';
+            for (const c of children) {
+                let attHTML = '';
+                try {
+                    const attResp = await Api.get('/attendance/summary/' + pickId(c));
+                    if (attResp.ok) {
+                        const att = await Api.json(attResp);
+                        attHTML = `
+                            <div class="mt-2">
+                                <div class="d-flex justify-content-between"><span class="eyebrow">Attendance</span><span><strong>${Math.round(att.rate||0)}%</strong></span></div>
+                                <div class="bar-track"><div class="bar-fill" style="width:${att.rate||0}%;"></div></div>
+                                <div class="d-flex justify-content-between mt-1"><span class="eyebrow">Present: ${att.present||0}</span><span class="eyebrow">Absent: ${att.absent||0}</span></div>
+                            </div>
+                        `;
+                    }
+                } catch (_) {}
+                html += `
+                    <div class="col-12 col-md-6 col-lg-4"><div class="stat tone-green h-100">
+                        <h6 class="mb-0">${escapeHtml(displayName(c))}</h6>
+                        <div class="eyebrow">${escapeHtml(c.className||'')}</div>
+                        <div class="d-flex justify-content-between mt-2"><span>Fees: ${money(c.fees?.paid||0)} / ${money(c.fees?.expected||0)}</span><span>${statusChip(c.fees?.status||'OUTSTANDING')}</span></div>
+                        ${attHTML}
+                        <div class="d-flex gap-2 mt-2 flex-wrap">
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="viewStudent('${escJs(pickId(c))}')"><i class="bi bi-eye"></i> View</button>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="generateReportCard('${escJs(pickId(c))}')"><i class="bi bi-file-earmark-text"></i> Report</button>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="printAttendanceReport('${escJs(pickId(c))}')"><i class="bi bi-printer"></i> Attendance</button>
+                        </div>
+                    </div></div>
+                `;
+            }
+            grid.innerHTML = html;
         };
 
         // --- EXAMS ---
@@ -8639,7 +9113,7 @@
             }
         };
 
-        // --- PLATFORM RENEWALS ---
+        // --- PLATFORM RENEWALS (moved to /platform/renewals/*) ---
         PAGE_RENDERERS.platformRenewals = function() {
             return `
             <div class="d-flex align-items-center gap-2 mb-3"><h5 style="font-weight:700;">Pending Subscription Renewals</h5><span class="chip chip-gold"><i class="bi bi-shield-lock"></i> Super Admin</span></div>
@@ -8649,7 +9123,7 @@
 
         POST_RENDER_HOOKS.platformRenewals = async function() {
             try {
-                const resp = await Api.get('/subscriptions/renewals/pending');
+                const resp = await Api.get('/platform/renewals/pending');
                 if (!resp.ok) { showToast('Failed to load renewals', 'error'); return; }
                 const renewals = await Api.json(resp);
                 const arr = toArray(renewals);
@@ -8661,14 +9135,14 @@
                 container.innerHTML = arr.map(r => `
                     <div class="panel mb-3">
                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-                            <div><strong>${escapeHtml(r.schoolId?.name || 'School')}</strong> – ${money(r.amount)} (${escapeHtml(r.plan||'')})</div>
+                            <div><strong>${escapeHtml(r.schoolName || r.schoolId?.name || 'School')}</strong> – ${money(r.amount)} (${escapeHtml(r.planName||r.plan||'')})</div>
                             <div class="d-flex gap-2">
                                 <button class="btn-x btn-primary-x btn-sm-x" onclick="approveRenewal('${escJs(pickId(r))}')"><i class="bi bi-check-lg"></i> Approve</button>
                                 <button class="btn-x btn-danger-x btn-sm-x" onclick="rejectRenewalPrompt('${escJs(pickId(r))}')"><i class="bi bi-x-lg"></i> Reject</button>
                             </div>
                         </div>
-                        <div class="eyebrow">Reference: ${escapeHtml(r.reference||'')} · Submitted: ${fmtDate(r.submittedAt||r.createdAt)}</div>
-                        ${r.proofUrl ? `<a href="${escapeHtml(r.proofUrl)}" target="_blank" class="btn-x btn-outline-x btn-sm-x mt-1"><i class="bi bi-eye"></i> View proof</a>` : ''}
+                        <div class="eyebrow">Reference: ${escapeHtml(r.reference||'')} · Submitted: ${fmtDate(r.submittedAt||r.date||r.createdAt)}</div>
+                        ${r.proof || r.proofUrl ? `<a href="${escapeHtml(r.proofUrl || r.proof || '#')}" target="_blank" class="btn-x btn-outline-x btn-sm-x mt-1"><i class="bi bi-eye"></i> View proof</a>` : ''}
                     </div>
                 `).join('');
             } catch (e) {
@@ -8678,10 +9152,10 @@
 
         window.approveRenewal = async function(id) {
             try {
-                const resp = await Api.post('/subscriptions/renewals/' + id + '/approve');
+                const resp = await Api.post('/platform/renewals/' + id + '/approve');
                 if (!resp.ok) { showToast('Approval failed', 'error'); return; }
                 showToast('Renewal approved', 'success');
-                renderPage('platformRenewals');
+                renderPlatformPage();
             } catch (e) { showToast('Network error', 'error'); }
         };
 
@@ -8700,11 +9174,11 @@
             setButtonLoading(btn, 'Rejecting...');
             const reason = document.getElementById('rejectReason').value.trim() || 'No reason provided';
             try {
-                const resp = await Api.post('/subscriptions/renewals/' + id + '/reject', { reason });
+                const resp = await Api.post('/platform/renewals/' + id + '/reject', { reason });
                 if (!resp.ok) { showToast('Rejection failed', 'error'); return; }
                 closeModal();
                 showToast('Renewal rejected', 'info');
-                renderPage('platformRenewals');
+                renderPlatformPage();
             } catch (e) { showToast('Network error', 'error'); }
             finally { resetButton(btn); }
         };
@@ -8712,8 +9186,31 @@
         // =============================================================
         // 20. PLATFORM ADMIN (Super Admin)
         // =============================================================
+        function bindPlatformAdminChrome() {
+            const renewalsBtn = document.getElementById('paRenewalsBtn');
+            if (renewalsBtn && !renewalsBtn.dataset.bound) {
+                renewalsBtn.dataset.bound = '1';
+                renewalsBtn.addEventListener('click', () => {
+                    CURRENT_PAGE = 'platformRenewals';
+                    renderPlatformPage();
+                });
+            }
+            const logoutBtn = document.getElementById('paLogoutBtn');
+            if (logoutBtn && !logoutBtn.dataset.bound) {
+                logoutBtn.dataset.bound = '1';
+                logoutBtn.addEventListener('click', async () => {
+                    try { await Api.serverLogout(); } catch (_) {}
+                    Api.clearTokens();
+                    hideAllScreens();
+                    document.getElementById('landingPage').style.display = 'block';
+                    showToast('Signed out of platform admin', 'info');
+                });
+            }
+        }
+
         function renderPlatformPage() {
             const el = document.getElementById('platformPageContent');
+            bindPlatformAdminChrome();
             const page = CURRENT_PAGE === 'platformRenewals' ? 'platformRenewals' : 'platformSchools';
             if (page === 'platformRenewals') {
                 el.innerHTML = `<div class="page-enter">${PAGE_RENDERERS.platformRenewals()}</div>`;
@@ -8726,7 +9223,7 @@
 
         function renderPlatformSchoolsPage() {
             return `
-            <div class="d-flex align-items-center gap-2 mb-3">
+            <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
                 <h5 style="font-weight:700;margin:0;">Platform Admin</h5>
                 <span class="chip chip-gold"><i class="bi bi-shield-lock"></i> Super Admin</span>
                 <button class="btn-x btn-outline-x btn-sm-x ms-auto" onclick="renderPlatformPage()"><i class="bi bi-arrow-repeat"></i> Refresh</button>
@@ -9159,12 +9656,6 @@
             });
 
             document.getElementById('paThemeToggle').addEventListener('click', toggleTheme);
-            document.getElementById('paLogoutBtn').addEventListener('click', () => {
-                Api.clearTokens();
-                hideAllScreens();
-                document.getElementById('landingPage').style.display = 'block';
-                showToast('Signed out of platform admin', 'info');
-            });
 
             const token = Api._token;
             const user = Api.getUser();
@@ -9172,6 +9663,7 @@
                 hideAllScreens();
                 if (user.role === 'SUPER_ADMIN') {
                     document.getElementById('platformApp').style.display = 'flex';
+                    bindPlatformAdminChrome();
                     renderPlatformPage();
                 } else {
                     document.getElementById('app').style.display = 'flex';
@@ -9196,11 +9688,16 @@
         window.closeModal = closeModal;
         window.showToast = showToast;
         window.logOut = logOut;
+        window.logOutAll = logOutAll;
+        window.confirmLogoutAll = confirmLogoutAll;
         window.enterAppFromLanding = enterAppFromLanding;
         window.toggleTheme = toggleTheme;
         window.openAccountMenu = openAccountMenu;
+        window.openChangePasswordModal = openChangePasswordModal;
+        window.submitChangePassword = submitChangePassword;
         window.toggleFab = toggleFab;
         window.openNotifications = openNotifications;
+        window.markNotificationRead = markNotificationRead;
         window.exportCSV = exportCSV;
         window.generateReportCard = generateReportCard;
         window.togglePlatformSchool = togglePlatformSchool;
@@ -9260,13 +9757,23 @@
         window.submitPromotion = submitPromotion;
         window.openEditStudentModal = openEditStudentModal;
         window.saveEditStudent = saveEditStudent;
+        window.exportStudentsCsv = exportStudentsCsv;
+        window.exportPaymentsCsv = exportPaymentsCsv;
+        window.exportInvoicesCsv = exportInvoicesCsv;
         window.viewParent = viewParent;
         window.sendParentSMS = sendParentSMS;
         window.doSendParentSMS = doSendParentSMS;
+        window.openAddStaffModal = openAddStaffModal;
+        window.saveNewStaff = saveNewStaff;
         window.openEditStaffModal = openEditStaffModal;
         window.saveEditStaff = saveEditStaff;
         window.deleteStaff = deleteStaff;
+        window.openStaffLoginModal = openStaffLoginModal;
+        window.submitStaffLogin = submitStaffLogin;
         window.generateSchoolWideReportCards = generateSchoolWideReportCards;
+        window.openPublishResultsModal = openPublishResultsModal;
+        window.submitPublishResults = submitPublishResults;
+        window.toggleResultPublish = toggleResultPublish;
         window.openPlatformSchoolDetail = openPlatformSchoolDetail;
         window.changeSchoolPlan = changeSchoolPlan;
         window.confirmPlanChange = confirmPlanChange;
@@ -9311,21 +9818,30 @@
         window.confirmDeleteCredential = confirmDeleteCredential;
         window.openResetPasswordModal = openResetPasswordModal;
         window.submitResetPassword = submitResetPassword;
+        // Approval delegation
+        window.openDelegateApprovalModal = openDelegateApprovalModal;
+        window.submitDelegateApproval = submitDelegateApproval;
 
-        console.log('🏫 SchoolFlow · Production Frontend (v5.0 — Template PDF rendering + Field pins + Fixed Score Entry + Receipt branding + Parent children + Fee sanity)');
-        console.log('✅ v5.0 highlights over v4.0:');
-        console.log('   • Report card PDF rendering: uploaded template + pins = printed PDF');
-        console.log('   • Field-aware pin editor: each pin knows what data it represents');
-        console.log('   • Score Entry roster fires on load — no more placeholder lock');
-        console.log('   • Receipts carry school name + logo + phone, not platform branding');
-        console.log('   • Receipt fallback to HTML when no template uploaded');
-        console.log('   • Report card fallback to HTML when no template uploaded');
-        console.log('   • Parent children computed from Student.parentIds, not stale arrays');
-        console.log('   • Fee sanity check: >₦1M per term flagged as duplicate invoices');
-        console.log('   • Template preview shows all placed pins over the image');
-        console.log('   • Set default template, delete template, list templates');
+        console.log('🏫 SchoolFlow · Production Frontend (v6.0 — Full backend wiring, session-aware permissions, change-password, server-side logout, result publishing, parent portal, queue paths aligned, renewal approval flow)');
+        console.log('✅ v6.0 highlights over v5.0:');
+        console.log('   • Server-side logout + logout-all (refresh tokens are revoked, not just cleared)');
+        console.log('   • Change password screen with confirmation');
+        console.log('   • Effective permissions read from /auth/session-status when available');
+        console.log('   • Forgot-password honours { sent: false } — no more lying to the user');
+        console.log('   • /auth/register-first handles 501 gracefully — routes to onboarding instead of a dead end');
+        console.log('   • Result publishing / unpublishing for proprietors and head teachers');
+        console.log('   • Parent portal uses /portal/children and /portal/* with fallback to /students?view=parent');
+        console.log('   • Queue monitor now hits /platform/queues/* (matches backend mounting)');
+        console.log('   • Renewal approvals now hit /platform/renewals/* (approve/reject actually possible)');
+        console.log('   • Staff → create login one-click flow (POST /staff/:id/login with /users fallback)');
+        console.log('   • Approval delegation UI for bursars (PUT /users/:id/approval-delegation)');
+        console.log('   • Notification click marks read (PUT /notifications/:id/read)');
+        console.log('   • Export CSV for students / payments / invoices');
+        console.log('   • SMS top-up gated to super admins only (removes free-credit hole)');
+        console.log('   • Report card + receipt fall back to HTML if PDF render fails');
         console.log('🔐 Role:', Api.getRole());
         console.log('📶 Online:', navigator.onLine);
+        console.log('🔗 API:', API_BASE);
     </script>
 </body>
 </html>
