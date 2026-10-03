@@ -12,6 +12,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
+    <!-- ============================================================
+         Set window.API_BASE before the main script runs.
+         Replace the value below with your deployed backend URL.
+         ============================================================ -->
+    <script>window.API_BASE = window.API_BASE || 'https://school-lwoa.onrender.com/api/v1';</script>
+
     <style>
         :root {
             --ink: #17241F;
@@ -931,6 +937,29 @@
         .pin-field-row:last-child { border-bottom: none; }
         .pin-field-row .field-name { font-weight: 600; text-transform: capitalize; }
         .pin-field-row .field-pos { color: var(--slate); font-size: .7rem; }
+
+        /* Website preview card */
+        .site-preview-hero {
+            border-radius: var(--radius-md); overflow: hidden;
+            border: 1px solid var(--line);
+            background: linear-gradient(140deg, var(--green) 0%, var(--green-deep) 100%);
+            color: #fff; padding: 1.2rem; margin-bottom: 1rem;
+        }
+
+        /* Assignment card accents */
+        .assign-pill { display: inline-block; font-size: .66rem; font-weight: 700; padding: .15rem .5rem; border-radius: 12px; background: var(--line-soft); color: var(--slate); }
+        .assign-pill.draft { background: var(--line-soft); }
+        .assign-pill.published { background: var(--green-light); color: var(--green); }
+        .assign-pill.closed { background: var(--danger-light); color: var(--danger); }
+
+        /* Timetable slot */
+        .tt-slot {
+            background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--green);
+            border-radius: var(--radius-md); padding: .6rem .8rem; margin-bottom: .4rem;
+        }
+        .tt-slot .tt-time { font-family: var(--font-display); font-weight: 700; font-size: .85rem; }
+        .tt-slot .tt-subject { font-weight: 600; }
+        .tt-slot .tt-class { color: var(--slate); font-size: .78rem; }
     </style>
 </head>
 <body>
@@ -1137,6 +1166,7 @@
             <div class="topbar-right">
                 <button class="icon-btn" id="paThemeToggle" title="Toggle theme"><i class="bi bi-moon-fill"></i></button>
                 <button class="btn-x btn-outline-x btn-sm-x" id="paRenewalsBtn"><i class="bi bi-hourglass-split"></i> Renewals</button>
+                <button class="btn-x btn-outline-x btn-sm-x" id="paSchoolsBtn"><i class="bi bi-building"></i> Schools</button>
                 <button class="btn-x btn-outline-x btn-sm-x" id="paLogoutBtn"><i class="bi bi-box-arrow-right"></i> Sign out</button>
             </div>
         </header>
@@ -1214,6 +1244,7 @@
         const WEEKLY_SEEN_KEY = 'schoolflow_weekly_seen';
         const SESSION_STATUS_KEY = 'schoolflow_session_status';
         const REQUEST_TIMEOUT_MS = 45000;
+
         const ROLE_LABELS = {
             SUPER_ADMIN: 'Super Admin',
             SCHOOL_OWNER: 'Proprietor',
@@ -1224,8 +1255,13 @@
             BURSAR: 'Bursar',
             TEACHER: 'Teacher',
             STAFF: 'Staff',
-            PARENT: 'Parent'
+            PARENT: 'Parent',
+            STUDENT: 'Student',
+            HOSTEL_MANAGER: 'Hostel Manager',
+            MASTER_MANAGER: 'Master Manager',
+            WORK_MANAGER: 'Work Manager'
         };
+
         const PERMISSION_ROLES = {
             approvePayments: ['SUPER_ADMIN', 'SCHOOL_OWNER'],
             closeTerm: ['SUPER_ADMIN', 'SCHOOL_OWNER'],
@@ -1244,15 +1280,24 @@
             manageExams: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER', 'FORM_TEACHER', 'SUBJECT_TEACHER'],
             manageInvoices: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'BURSAR'],
             manageSubjects: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER'],
+            manageWebsite: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN'],
+            manageAdmissions: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER'],
+            enrollApplicants: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN'],
+            manageAssignments: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER', 'FORM_TEACHER', 'SUBJECT_TEACHER'],
+            viewAssignments: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER', 'FORM_TEACHER', 'SUBJECT_TEACHER', 'PARENT', 'STUDENT'],
+            viewTimetable: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER', 'FORM_TEACHER', 'SUBJECT_TEACHER', 'PARENT', 'STUDENT', 'STAFF'],
+            submitAssignment: ['STUDENT'],
+            manageHostel: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HOSTEL_MANAGER'],
+            viewHostel: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'HEAD_TEACHER', 'HOSTEL_MANAGER'],
             viewAll: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN'],
             platformAccess: ['SUPER_ADMIN'],
             topUpSms: ['SUPER_ADMIN'],
             delegateApproval: ['SUPER_ADMIN', 'SCHOOL_OWNER'],
-            viewPortal: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'PARENT']
+            viewPortal: ['SUPER_ADMIN', 'SCHOOL_OWNER', 'ADMIN', 'PARENT', 'STUDENT']
         };
 
         // =============================================================
-        // 1b. DISPLAY MAPS — never show raw enum values to users
+        // 1b. DISPLAY MAPS
         // =============================================================
         const PAYMENT_METHOD_LABELS = {
             ONLINE: 'Online',
@@ -1380,11 +1425,8 @@
             getSessionStatus() { return this._sessionStatus; },
 
             can(permission) {
-                // Prefer server-reported effective permissions when available.
                 const ss = this._sessionStatus;
                 if (ss && ss.permissions && typeof ss.permissions === 'object') {
-                    // If backend returns { payments: ['approve'], students: ['write'], ... }
-                    // map permission aliases accordingly; fall back to role check.
                     const aliasMap = {
                         approvePayments: ['payments:approve', 'subscriptions:approve'],
                         closeTerm: ['schools:closeTerm', 'terms:close'],
@@ -1403,6 +1445,15 @@
                         manageExams: ['exams:write'],
                         manageInvoices: ['invoices:write'],
                         manageSubjects: ['subjects:write'],
+                        manageWebsite: ['site:write'],
+                        manageAdmissions: ['admissions:write'],
+                        enrollApplicants: ['admissions:enroll'],
+                        manageAssignments: ['assignments:write'],
+                        viewAssignments: ['assignments:read'],
+                        viewTimetable: ['timetable:read'],
+                        submitAssignment: ['assignments:submit'],
+                        manageHostel: ['hostel:manage', 'hostel:write'],
+                        viewHostel: ['hostel:read'],
                         platformAccess: ['platform:access'],
                         topUpSms: ['sms:topup'],
                         delegateApproval: ['users:delegate'],
@@ -1419,7 +1470,6 @@
                         });
                     }
                 }
-                // Fallback: role-based matrix.
                 const role = this.getRole();
                 if (!role) return false;
                 if (role === 'SUPER_ADMIN') return true;
@@ -1484,6 +1534,7 @@
             async get(endpoint) { return this._fetch(endpoint); },
             async post(endpoint, body, extra = {}) { return this._fetch(endpoint, { method: 'POST', body: JSON.stringify(body || {}), ...extra }); },
             async put(endpoint, body) { return this._fetch(endpoint, { method: 'PUT', body: JSON.stringify(body || {}) }); },
+            async patch(endpoint, body) { return this._fetch(endpoint, { method: 'PATCH', body: JSON.stringify(body || {}) }); },
             async del(endpoint) { return this._fetch(endpoint, { method: 'DELETE' }); },
 
             async upload(endpoint, formData) {
@@ -1519,17 +1570,16 @@
                 }
             },
 
-            // Server-side logout: revoke current refresh token.
             async serverLogout() {
                 try {
                     if (this._refresh) {
                         await this._fetchWithTimeout(API_BASE + '/auth/logout', {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (this._token || '') },
                             body: JSON.stringify({ refreshToken: this._refresh })
                         }, 8000);
                     }
-                } catch (_) { /* ignore — logout is best effort */ }
+                } catch (_) {}
             },
 
             async serverLogoutAll() {
@@ -1620,7 +1670,7 @@
         }
 
         function fmtDate(d) { if (!d) return '—'; return new Date(d).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' }); }
-        function fmtDateTime(d) { return new Date(d).toLocaleString('en-NG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+        function fmtDateTime(d) { if (!d) return '—'; return new Date(d).toLocaleString('en-NG', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
         function fmtTime(d) { return new Date(d).toLocaleTimeString('en-NG', { hour: '2-digit', minute: '2-digit' }); }
         function initials(name) { return (name || '').split(' ').filter(Boolean).slice(0, 2).map(s => s[0]).join('').toUpperCase(); }
         function escapeHtml(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m])); }
@@ -1665,6 +1715,7 @@
             if (Array.isArray(raw.items)) return raw.items;
             if (Array.isArray(raw.data)) return raw.data;
             if (Array.isArray(raw.results)) return raw.results;
+            if (Array.isArray(raw.rows)) return raw.rows;
             return [];
         }
 
@@ -1698,6 +1749,7 @@
             const school = _pageData.school || {};
             if (school.currentSessionId) return extractId(school.currentSessionId);
             if (school.sessionId) return extractId(school.sessionId);
+            if (school.currentSession && typeof school.currentSession === 'object') return extractId(school.currentSession);
             const active = _academicCache.sessions.find(s => s.isActive) || _academicCache.sessions[0];
             return active ? (active.id || active._id) : null;
         }
@@ -1706,6 +1758,7 @@
             const school = _pageData.school || {};
             if (school.currentTermId) return extractId(school.currentTermId);
             if (school.termId) return extractId(school.termId);
+            if (school.currentTerm && typeof school.currentTerm === 'object') return extractId(school.currentTerm);
             const active = _academicCache.terms.find(t => t.isActive) || _academicCache.terms[0];
             return active ? (active.id || active._id) : null;
         }
@@ -1786,8 +1839,10 @@
                 PENDING: 'chip-gold', REJECTED: 'chip-danger', ISSUED: 'chip-green',
                 CANCELLED: 'chip-slate', ACTIVE: 'chip-green', EXPIRED: 'chip-danger', SUSPENDED: 'chip-danger',
                 DRAFT: 'chip-slate', PUBLISHED: 'chip-green', CONFIRMED: 'chip-green', UNPUBLISHED: 'chip-slate',
+                SUBMITTED: 'chip-info', UNDER_REVIEW: 'chip-gold', INTERVIEW_SCHEDULED: 'chip-info',
+                ADMITTED: 'chip-green', WAITLISTED: 'chip-gold', ENROLLED: 'chip-green', WITHDRAWN: 'chip-slate',
                 MALE: 'chip-info', FEMALE: 'chip-info' };
-            return `<span class="chip ${map[status]||'chip-slate'}">${escapeHtml(status || '—')}</span>`;
+            return `<span class="chip ${map[status]||'chip-slate'}">${escapeHtml(String(status || '—').replace(/_/g,' '))}</span>`;
         }
 
         function gradeChip(g) {
@@ -1995,6 +2050,9 @@
             document.getElementById('modalBox').className = 'modal-x' + (opts.wide ? ' wide' : '');
             document.getElementById('modalClose').onclick = closeModal;
             document.getElementById('modalOverlay').onclick = (e) => { if (e.target.id === 'modalOverlay') closeModal(); };
+            // Ensure scroll to top of modal body
+            const body = document.getElementById('modalBody');
+            if (body) body.scrollTop = 0;
         }
 
         function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
@@ -2054,11 +2112,15 @@
                 { label: 'Mark attendance', icon: 'bi-calendar-check', action: () => { closeCommandPalette(); navigateTo('attendance'); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER'] },
                 { label: 'Generate report card', icon: 'bi-file-earmark-text', action: () => { closeCommandPalette(); navigateTo('results'); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER'] },
                 { label: 'Enter scores', icon: 'bi-pencil-square', action: () => { closeCommandPalette(); navigateTo('scoreentry'); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER'] },
+                { label: 'Publish results to parents', icon: 'bi-broadcast', action: () => { closeCommandPalette(); openPublishModal(); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER'] },
                 { label: 'Build fee structure', icon: 'bi-diagram-3', action: () => { closeCommandPalette(); navigateTo('feestructure'); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','BURSAR'] },
                 { label: 'Create staff login', icon: 'bi-shield-lock', action: () => { closeCommandPalette(); navigateTo('credentials'); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN'] },
                 { label: 'Import students (CSV)', icon: 'bi-upload', action: () => { closeCommandPalette(); openBulkImportStudents(); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN'] },
                 { label: 'Upload report card template', icon: 'bi-palette', action: () => { closeCommandPalette(); openTemplateUploadModal(); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN'] },
-                { label: 'Change password', icon: 'bi-key', action: () => { closeCommandPalette(); openChangePasswordModal(); } },
+                { label: 'New assignment', icon: 'bi-journal-plus', action: () => { closeCommandPalette(); navigateTo('assignments'); setTimeout(openAddAssignmentModal, 300); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER'] },
+                { label: 'Admissions', icon: 'bi-person-plus-fill', action: () => { closeCommandPalette(); navigateTo('admissions'); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER'] },
+                { label: 'School website', icon: 'bi-globe2', action: () => { closeCommandPalette(); navigateTo('website'); }, roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER'] },
+                { label: 'Change password', icon: 'bi-key', action: () => { closeCommandPalette(); openChangePassword(); } },
                 { label: 'Sign out of all devices', icon: 'bi-shield-exclamation', action: () => { closeCommandPalette(); confirmLogoutAll(); } },
                 { label: 'Toggle theme', icon: 'bi-moon', action: () => { closeCommandPalette(); toggleTheme(); } },
                 { label: 'Sign out', icon: 'bi-box-arrow-right', action: () => { closeCommandPalette(); logOut(); } }
@@ -2196,7 +2258,6 @@
                 hideAllScreens();
                 hapticFeedback(20);
                 const role = data.user?.role;
-                // Fire-and-forget: refresh effective permissions from server.
                 Api.refreshSessionStatus().catch(() => {});
                 if (role === 'SUPER_ADMIN') {
                     document.getElementById('platformApp').style.display = 'flex';
@@ -2223,8 +2284,6 @@
             setButtonLoading(btn, 'Saving...');
             try {
                 const resp = await Api.post('/auth/register-first', { username, password });
-                // Backend may not implement this endpoint yet (returns 501).
-                // Handle gracefully with an actionable message instead of a vague error.
                 if (resp.status === 501) {
                     showToast('This deployment does not support first-time credential setup. Please complete onboarding to create your school instead.', 'warning', 7000);
                     hideAllScreens();
@@ -2260,7 +2319,6 @@
         }
 
         async function logOut() {
-            // Revoke server-side refresh token first (best effort), then clear local.
             try { await Api.serverLogout(); } catch (_) {}
             Api.clearTokens();
             booted = false;
@@ -2291,44 +2349,36 @@
         // =============================================================
         // 9b. CHANGE PASSWORD
         // =============================================================
-        function openChangePasswordModal() {
+        function openChangePassword() {
             openModal('Change password', `
-                <div class="mb-3"><label class="field-label">Current password</label><input class="input-x" id="cpCurrent" type="password" placeholder="Current password" /></div>
-                <div class="mb-3"><label class="field-label">New password</label><input class="input-x" id="cpNew" type="password" placeholder="Minimum 6 characters" /></div>
-                <div class="mb-1"><label class="field-label">Confirm new password</label><input class="input-x" id="cpConfirm" type="password" placeholder="Repeat new password" /></div>
-                <p class="eyebrow mt-2"><i class="bi bi-shield-lock me-1"></i>Changing your password will sign you out of other devices.</p>
+                <div class="mb-3"><label class="field-label">Current password</label><input class="input-x" id="cpOld" type="password" autocomplete="current-password" /></div>
+                <div class="mb-3"><label class="field-label">New password</label><input class="input-x" id="cpNew" type="password" autocomplete="new-password" placeholder="Minimum 6 characters" /></div>
+                <div class="mb-3"><label class="field-label">Confirm new password</label><input class="input-x" id="cpNew2" type="password" autocomplete="new-password" /></div>
+                <p class="eyebrow mt-2"><i class="bi bi-shield-lock me-1"></i>Changing your password signs you out of other devices.</p>
                 <div class="d-flex gap-2 mt-4">
                     <button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
-                    <button class="btn-x btn-primary-x btn-block-x" onclick="submitChangePassword(this)"><i class="bi bi-key"></i> Change password</button>
+                    <button class="btn-x btn-primary-x btn-block-x" onclick="saveNewPassword(this)"><i class="bi bi-key"></i> Update password</button>
                 </div>
             `);
         }
 
-        async function submitChangePassword(btn) {
-            const currentPassword = document.getElementById('cpCurrent').value;
+        async function saveNewPassword(btn) {
+            const oldPassword = document.getElementById('cpOld').value;
             const newPassword = document.getElementById('cpNew').value;
-            const confirmPassword = document.getElementById('cpConfirm').value;
-            if (!currentPassword) { showToast('Enter your current password', 'error'); return; }
-            if (!newPassword || newPassword.length < 6) { showToast('New password must be at least 6 characters', 'error'); return; }
-            if (newPassword !== confirmPassword) { showToast('New passwords do not match', 'error'); return; }
+            const again = document.getElementById('cpNew2').value;
+            if (!oldPassword || !newPassword) { showToast('Fill all fields', 'error'); return; }
+            if (newPassword.length < 6) { showToast('New password must be at least 6 characters', 'error'); return; }
+            if (newPassword !== again) { showToast('New passwords do not match', 'error'); return; }
             setButtonLoading(btn, 'Updating...');
             try {
-                const resp = await Api.post('/auth/change-password', { currentPassword, newPassword });
-                if (!resp.ok) {
-                    const msg = await parseErrorResponse(resp);
-                    showToast(msg || 'Could not change password', 'error', 6000);
-                    return;
-                }
+                // Backend expects { oldPassword, newPassword }
+                const resp = await Api.post('/auth/change-password', { oldPassword, newPassword });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
                 closeModal();
                 hapticFeedback(25);
-                showToast('Password updated. Signing you in again on this device.', 'success', 4000);
-                // Refresh session state to keep the current device signed in.
-                try { await Api.refreshSessionStatus(); } catch (_) {}
-            } catch (e) {
-                showToast(e.message || 'Network error', 'error');
-            } finally {
-                resetButton(btn);
-            }
+                showToast('Password updated. Other devices have been signed out.', 'success', 4500);
+                Api.refreshSessionStatus().catch(() => {});
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
         }
 
         // =============================================================
@@ -2357,8 +2407,6 @@
             setButtonLoading(btn, 'Sending...');
             try {
                 const resp = await Api.post('/auth/forgot-password', { email, school, phone });
-                // The backend may return 200 with { sent: false } when email is not configured.
-                // Honour the actual response, don't lie to the user.
                 let sent = false;
                 let serverMsg = '';
                 if (resp.ok) {
@@ -2552,6 +2600,10 @@
                 Api.get('/users').then(r => ['users', r.status !== 404]).catch(() => ['users', false]),
                 Api.get('/academics/subjects').then(r => ['subjects', r.status !== 404]).catch(() => ['subjects', false]),
                 Api.get('/portal/me').then(r => ['portal', r.status !== 404]).catch(() => ['portal', false]),
+                Api.get('/assignments').then(r => ['assignments', r.status !== 404]).catch(() => ['assignments', false]),
+                Api.get('/timetable').then(r => ['timetable', r.status !== 404]).catch(() => ['timetable', false]),
+                Api.get('/site').then(r => ['website', r.status !== 404]).catch(() => ['website', false]),
+                Api.get('/admissions').then(r => ['admissions', r.status !== 404]).catch(() => ['admissions', false]),
             ]);
             window._features = Object.fromEntries(checks);
             try { localStorage.setItem(FEATURES_KEY, JSON.stringify(window._features)); } catch (_) {}
@@ -2573,6 +2625,7 @@
             parents: ['Parents', 'Guardian contacts and balances'],
             staff: ['Staff', 'Manage school staff'],
             credentials: ['Logins & Roles', 'Manage staff, teacher, and parent logins'],
+            admissions: ['Admissions', 'Applications, approvals and your admission form'],
             fees: ['Fee overview', 'Collection summary by class'],
             feestructure: ['Fee structure', 'Build termly fee structures per class'],
             payments: ['Payments', 'Record and review payments'],
@@ -2594,13 +2647,17 @@
             parentportal: ['Parent Portal', 'My children'],
             exams: ['Exams', 'Schedule and manage exams'],
             health: ['System Health', 'Monitoring & status'],
-            platformRenewals: ['Renewal Approvals', 'Pending subscription renewals']
+            platformRenewals: ['Renewal Approvals', 'Pending subscription renewals'],
+            website: ['Website', 'Your public school site and admission form'],
+            assignments: ['Assignments', 'Homework and submissions'],
+            timetable: ['Timetable', 'Weekly class schedule'],
+            hostel: ['Hostel', 'Boarding houses, rooms and roll call']
         };
 
         const NAV_ITEMS = [
             { group: 'Overview', items: [
                 { key: 'dashboard', icon: 'bi-grid-1x2-fill', label: 'Dashboard',
-                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER','BURSAR','PARENT','STAFF'] },
+                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER','BURSAR','PARENT','STUDENT','STAFF','HOSTEL_MANAGER','MASTER_MANAGER','WORK_MANAGER'] },
                 { key: 'insights', icon: 'bi-graph-up-arrow', label: 'Insights', badge: 'PRO',
                   roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER'] }
             ] },
@@ -2614,7 +2671,9 @@
                 { key: 'staff', icon: 'bi-person-badge-fill', label: 'Staff',
                   roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER'] },
                 { key: 'credentials', icon: 'bi-shield-lock-fill', label: 'Logins & Roles',
-                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN'] }
+                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN'] },
+                { key: 'admissions', icon: 'bi-person-plus-fill', label: 'Admissions',
+                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER'] }
             ] },
             { group: 'Finance', items: [
                 { key: 'feestructure', icon: 'bi-diagram-3-fill', label: 'Fee structure',
@@ -2634,15 +2693,23 @@
                 { key: 'attendance', icon: 'bi-calendar-check-fill', label: 'Attendance',
                   roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER'] },
                 { key: 'attendanceReview', icon: 'bi-clock-history', label: 'Attendance History',
-                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','PARENT'] },
+                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','PARENT','STUDENT'] },
                 { key: 'exams', icon: 'bi-calendar-event-fill', label: 'Exams',
                   roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER'] },
                 { key: 'scoreentry', icon: 'bi-pencil-square', label: 'Score Entry',
                   roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER'] },
                 { key: 'results', icon: 'bi-bar-chart-fill', label: 'Results',
-                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER','PARENT'] },
+                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER','PARENT','STUDENT'] },
+                { key: 'assignments', icon: 'bi-journal-text', label: 'Assignments',
+                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER','PARENT','STUDENT'] },
+                { key: 'timetable', icon: 'bi-calendar-week', label: 'Timetable',
+                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER','PARENT','STUDENT'] },
                 { key: 'reportstudio', icon: 'bi-palette-fill', label: 'Report Studio',
                   roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN'] }
+            ] },
+            { group: 'Boarding', items: [
+                { key: 'hostel', icon: 'bi-house-door-fill', label: 'Hostel',
+                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','HOSTEL_MANAGER'] }
             ] },
             { group: 'Automation', items: [
                 { key: 'automations', icon: 'bi-gear-wide-connected', label: 'Automations',
@@ -2651,6 +2718,8 @@
                   roles: ['SUPER_ADMIN','SCHOOL_OWNER'] }
             ] },
             { group: 'System', items: [
+                { key: 'website', icon: 'bi-globe2', label: 'Website',
+                  roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER'] },
                 { key: 'reports', icon: 'bi-file-earmark-bar-graph-fill', label: 'Reports',
                   roles: ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','BURSAR'] },
                 { key: 'documents', icon: 'bi-folder2-open', label: 'Documents',
@@ -2670,15 +2739,19 @@
             { key: 'dashboard', icon: 'bi-grid-1x2-fill', label: 'Home' },
             { key: 'students', icon: 'bi-people-fill', label: 'Students' },
             { key: 'payments', icon: 'bi-credit-card-fill', label: 'Payments' },
-            { key: 'attendance', icon: 'bi-calendar-check-fill', label: 'Attendance' }
+            { key: 'attendance', icon: 'bi-calendar-check-fill', label: 'Attendance' },
+            { key: 'assignments', icon: 'bi-journal-text', label: 'Homework' },
+            { key: 'timetable', icon: 'bi-calendar-week', label: 'Timetable' }
         ];
 
         const BOTTOM_NAV_ROLE_MAP = {
-            PARENT: ['dashboard', 'students', 'payments', 'results'],
+            PARENT: ['dashboard', 'students', 'payments', 'results', 'assignments', 'timetable'],
+            STUDENT: ['dashboard', 'assignments', 'timetable', 'results'],
             BURSAR: ['dashboard', 'payments', 'defaulters', 'invoices'],
-            FORM_TEACHER: ['dashboard', 'students', 'attendance', 'scoreentry'],
-            SUBJECT_TEACHER: ['dashboard', 'students', 'attendance', 'scoreentry'],
-            HEAD_TEACHER: ['dashboard', 'students', 'attendance', 'results'],
+            FORM_TEACHER: ['dashboard', 'students', 'attendance', 'scoreentry', 'assignments'],
+            SUBJECT_TEACHER: ['dashboard', 'students', 'attendance', 'scoreentry', 'assignments'],
+            HEAD_TEACHER: ['dashboard', 'students', 'attendance', 'results', 'assignments'],
+            HOSTEL_MANAGER: ['dashboard', 'hostel']
         };
 
         let CURRENT_PAGE = 'dashboard';
@@ -2689,7 +2762,7 @@
             const role = Api.getRole();
             container.innerHTML = NAV_ITEMS.map(group => {
                 const items = group.items.filter(item => {
-                    if (!featureEnabled(item.key) && item.key !== 'invoices' && item.key !== 'exams') return false;
+                    if (!featureEnabled(item.key) && item.key !== 'invoices' && item.key !== 'exams' && item.key !== 'website' && item.key !== 'admissions' && item.key !== 'assignments' && item.key !== 'timetable' && item.key !== 'hostel') return false;
                     if (item.roles && !item.roles.includes(role)) return false;
                     return true;
                 });
@@ -2712,7 +2785,9 @@
 
             const bottom = document.getElementById('bottomNav');
             const bnAllowed = BOTTOM_NAV_ROLE_MAP[role];
-            const bnItems = bnAllowed ? BOTTOM_NAV.filter(i => bnAllowed.includes(i.key)) : BOTTOM_NAV;
+            const bnItems = bnAllowed
+                ? BOTTOM_NAV.filter(i => bnAllowed.includes(i.key))
+                : BOTTOM_NAV.filter(i => ['dashboard','students','payments','attendance'].includes(i.key));
             bottom.innerHTML = bnItems.map(item =>
                 `<button class="bn-item" data-page="${item.key}"><i class="bi ${item.icon}"></i><span>${item.label}</span></button>`
             ).join('');
@@ -2802,7 +2877,6 @@
             document.getElementById('fabMain').addEventListener('click', toggleFab);
 
             await loadAcademicContext();
-            // Refresh effective permissions from server.
             Api.refreshSessionStatus().catch(() => {});
 
             const schoolPromise = Api.get('/schools/current').catch(() => null);
@@ -2812,8 +2886,8 @@
                 const resp = await schoolPromise;
                 if (resp && resp.ok) {
                     const data = await Api.json(resp);
-                    _pageData.school = data;
-                    document.getElementById('brandSchoolName').textContent = data.name || 'School management';
+                    _pageData.school = data.school || data;
+                    document.getElementById('brandSchoolName').textContent = _pageData.school.name || 'School management';
                 }
             } catch (_) {}
             try {
@@ -2829,7 +2903,7 @@
                 const resp = await Api.get('/schools/current');
                 if (resp.ok) {
                     const data = await Api.json(resp);
-                    _pageData.school = data;
+                    _pageData.school = data.school || data;
                 }
             } catch (_) {}
 
@@ -2866,7 +2940,7 @@
                 ${delegationLine}
                 <hr class="hr-x" />
                 <div class="d-flex flex-column gap-2">
-                    <button class="btn-x btn-outline-x btn-block-x" onclick="closeModal();openChangePasswordModal()"><i class="bi bi-key"></i> Change password</button>
+                    <button class="btn-x btn-outline-x btn-block-x" onclick="closeModal();openChangePassword()"><i class="bi bi-key"></i> Change password</button>
                     <button class="btn-x btn-outline-x btn-block-x" onclick="closeModal();navigateTo('settings')"><i class="bi bi-gear"></i> Settings</button>
                     <button class="btn-x btn-outline-x btn-block-x" onclick="closeModal();openCommandPalette()"><i class="bi bi-search"></i> Quick search (⌘K)</button>
                     <button class="btn-x btn-outline-x btn-block-x" onclick="closeModal();confirmLogoutAll()"><i class="bi bi-shield-exclamation"></i> Sign out of all devices</button>
@@ -2898,6 +2972,9 @@
                 if (['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER'].includes(role)) {
                     items.push(`<button class="fab-item" style="animation-delay:.10s" onclick="toggleFab();navigateTo('attendance')"><i class="bi bi-calendar-check"></i> Mark attendance</button>`);
                 }
+                if (['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER'].includes(role)) {
+                    items.push(`<button class="fab-item" style="animation-delay:.14s" onclick="toggleFab();navigateTo('assignments');setTimeout(openAddAssignmentModal,250)"><i class="bi bi-journal-plus"></i> New assignment</button>`);
+                }
                 menu.innerHTML = items.join('') || `<div class="fab-item" style="pointer-events:none;opacity:.7;">No quick actions for your role</div>`;
             } else {
                 setTimeout(() => { if (!fabOpen) menu.style.display = 'none'; }, 200);
@@ -2905,42 +2982,43 @@
         }
 
         // =============================================================
-        // 17. NOTIFICATIONS
+        // 17. NOTIFICATIONS (fixed field names — backend sends `body`)
         // =============================================================
         async function openNotifications() {
             openModal('Notifications', `<div class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</div>`);
             try {
                 const resp = await Api.get('/notifications');
                 if (!resp.ok) throw new Error('No notifications endpoint');
-                const notifications = await Api.json(resp);
-                const arr = toArray(notifications);
+                const arr = toArray(await Api.json(resp));
                 if (arr.length === 0) {
                     document.getElementById('modalBody').innerHTML = emptyState('bell', 'No notifications', 'You are all caught up.');
                     return;
                 }
-                document.getElementById('modalBody').innerHTML = `<div class="d-flex flex-column gap-2">${arr.map(n => `
-                    <div class="p-2" style="background:${n.isRead ? 'var(--line-soft)' : 'var(--green-light)'};border-radius:var(--radius-sm);cursor:pointer;" onclick="markNotificationRead('${escJs(pickId(n))}')">
+                // Clear the red dot
+                const dot = document.getElementById('notifDot');
+                if (dot) dot.style.display = 'none';
+                document.getElementById('modalBody').innerHTML = `<div class="d-flex flex-column gap-2">${arr.map(n => {
+                    const id = pickId(n);
+                    const read = !!(n.read || n.isRead || n.readAt);
+                    return `
+                    <div class="p-2" id="nf_${escJs(id)}" onclick="markNotifRead('${escJs(id)}')"
+                         style="background:${read ? 'var(--line-soft)' : 'var(--green-light)'};border-radius:var(--radius-sm);cursor:pointer;${read ? 'opacity:.7;' : 'border-left:3px solid var(--green);'}">
                         <div style="font-weight:600;font-size:.85rem;">${escapeHtml(n.title || 'Notification')}</div>
-                        <div class="eyebrow">${escapeHtml(n.message || '')}</div>
-                        <div class="eyebrow mt-1">${fmtDateTime(n.createdAt)} ${n.isRead ? '' : '· <strong style="color:var(--green)">New</strong>'}</div>
-                    </div>
-                `).join('')}</div>`;
+                        <div class="eyebrow">${escapeHtml(n.body || n.message || '')}</div>
+                        <div class="eyebrow mt-1">${fmtDateTime(n.createdAt)}${read ? '' : ' · <strong style="color:var(--green)">New</strong>'}</div>
+                    </div>`;
+                }).join('')}</div>`;
             } catch (_) {
                 document.getElementById('modalBody').innerHTML = emptyState('bell', 'No notifications', 'You are all caught up.');
             }
         }
 
-        async function markNotificationRead(id) {
+        window.markNotifRead = async function(id) {
+            const el = document.getElementById('nf_' + id);
+            if (el) { el.style.opacity = '.7'; el.style.borderLeft = 'none'; el.style.background = 'var(--line-soft)'; }
             if (!id || !isValidObjectId(id)) return;
-            try {
-                const resp = await Api.put('/notifications/' + id + '/read', {});
-                if (resp.ok) {
-                    const dot = document.getElementById('notifDot');
-                    if (dot) dot.style.display = 'none';
-                    openNotifications();
-                }
-            } catch (_) {}
-        }
+            try { await Api.put('/notifications/' + id + '/read', {}); } catch (_) {}
+        };
 
         // =============================================================
         // 18. TRIAL STATUS
@@ -3140,8 +3218,9 @@
             if (role === 'BURSAR') return renderBursarDashboard();
             if (role === 'FORM_TEACHER') return renderFormTeacherDashboard();
             if (role === 'SUBJECT_TEACHER') return renderSubjectTeacherDashboard();
-            if (role === 'PARENT') return renderParentDashboard();
+            if (role === 'PARENT' || role === 'STUDENT') return renderParentDashboard();
             if (role === 'HEAD_TEACHER') return renderHeadTeacherDashboard();
+            if (role === 'HOSTEL_MANAGER') return renderHostelDashboard();
             return renderFullDashboard();
         };
 
@@ -3151,9 +3230,10 @@
             <div id="dashWeeklySlot"></div>
             <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
                 <div><h4 style="font-weight:700;">${greeting()}</h4><p class="eyebrow mb-0" id="dashSchoolName">${escapeHtml(_pageData.school?.name || 'SchoolFlow')}</p></div>
-                <div class="d-flex gap-2 align-items-center">
-                    <span class="chip chip-green"><i class="bi bi-calendar3"></i> ${escapeHtml(_pageData.school?.currentTerm || _pageData.school?.term || 'First Term')}</span>
+                <div class="d-flex gap-2 align-items-center flex-wrap">
+                    <span class="chip chip-green"><i class="bi bi-calendar3"></i> ${escapeHtml(_pageData.school?.currentTerm?.name || _pageData.school?.currentTerm || _pageData.school?.term || 'First Term')}</span>
                     <button class="btn-x btn-outline-x btn-sm-x" onclick="navigateTo('reports')"><i class="bi bi-file-earmark-bar-graph"></i> Reports</button>
+                    <button class="btn-x btn-primary-x btn-sm-x" onclick="openPublishModal()"><i class="bi bi-send"></i> Publish</button>
                 </div>
             </div>
 
@@ -3224,7 +3304,7 @@
             return `
             <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
                 <div><h4 style="font-weight:700;">Good day, ${escapeHtml(name)}</h4><p class="eyebrow mb-0">Form teacher dashboard</p></div>
-                <span class="chip chip-green"><i class="bi bi-person-badge"></i> ${escapeHtml(_pageData.school?.currentTerm || 'Current term')}</span>
+                <span class="chip chip-green"><i class="bi bi-person-badge"></i> ${escapeHtml(_pageData.school?.currentTerm?.name || _pageData.school?.currentTerm || 'Current term')}</span>
             </div>
             <div class="row g-3 mb-3">
                 <div class="col-6 col-lg-3"><div class="stat tone-green"><div class="label-caps">My class</div><div class="figure-lg num hero-bright" id="ftStudents">—</div></div></div>
@@ -3285,6 +3365,7 @@
             return `
             <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
                 <div><h4 style="font-weight:700;">Good day, ${escapeHtml(name)}</h4><p class="eyebrow mb-0">Head teacher dashboard</p></div>
+                <button class="btn-x btn-primary-x btn-sm-x" onclick="openPublishModal()"><i class="bi bi-send"></i> Publish to parents</button>
             </div>
             <div class="row g-3 mb-3">
                 <div class="col-6 col-lg-3"><div class="stat tone-green"><div class="label-caps">Students</div><div class="figure-lg num hero-bright" id="htStudents">—</div></div></div>
@@ -3294,6 +3375,23 @@
             </div>
             <div class="panel mb-3"><h6 class="mb-3">Weekly attendance</h6><div class="chart-box"><canvas id="htAttChart"></canvas></div></div>
             <div class="panel"><h6 class="mb-3">Class performance</h6><div class="chart-box"><canvas id="htClassChart"></canvas></div></div>
+            `;
+        }
+
+        function renderHostelDashboard() {
+            const name = (Api.getUser()?.name || 'there').split(' ')[0];
+            return `
+            <div class="mb-3"><h4 style="font-weight:700;">Good day, ${escapeHtml(name)}</h4><p class="eyebrow mb-0">Hostel manager dashboard</p></div>
+            <div class="row g-3 mb-3">
+                <div class="col-6 col-lg-3"><div class="stat tone-green"><div class="label-caps">My hostels</div><div class="figure-lg num hero-bright" id="hmHostels">—</div></div></div>
+                <div class="col-6 col-lg-3"><div class="stat tone-gold"><div class="label-caps">Rooms</div><div class="figure-lg num" id="hmRooms">—</div></div></div>
+                <div class="col-6 col-lg-3"><div class="stat tone-slate"><div class="label-caps">Residents</div><div class="figure-lg num" id="hmResidents">—</div></div></div>
+                <div class="col-6 col-lg-3"><div class="stat tone-danger"><div class="label-caps">Absent tonight</div><div class="figure-lg num" id="hmAbsent">—</div></div></div>
+            </div>
+            <div class="row g-2 mb-3">
+                <div class="col-12 col-md-4"><button class="btn-x btn-primary-x btn-block-x" onclick="navigateTo('hostel')"><i class="bi bi-house-door"></i> Open hostel</button></div>
+            </div>
+            <div class="panel"><h6>Hostels you manage</h6><div id="hmList"><div class="text-center py-3"><i class="bi bi-arrow-repeat me-2"></i>Loading...</div></div></div>
             `;
         }
 
@@ -3313,8 +3411,9 @@
                 if (role === 'BURSAR') return loadBursarDashboard();
                 if (role === 'FORM_TEACHER') return loadFormTeacherDashboard();
                 if (role === 'SUBJECT_TEACHER') return loadSubjectTeacherDashboard();
-                if (role === 'PARENT') return loadParentDashboard();
+                if (role === 'PARENT' || role === 'STUDENT') return loadParentDashboard();
                 if (role === 'HEAD_TEACHER') return loadHeadTeacherDashboard();
+                if (role === 'HOSTEL_MANAGER') return loadHostelDashboard();
                 return loadFullDashboard();
             } catch (e) {
                 console.error('Dashboard render error:', e);
@@ -3721,8 +3820,7 @@
         }
 
         async function loadParentDashboard() {
-            // Prefer the dedicated /portal/children endpoint when available.
-            // Falls back to /students?view=parent for older backends.
+            // Prefer /portal/children. Fallback to /students?view=parent for older backends.
             let children = [];
             let usedPortal = false;
             try {
@@ -3767,6 +3865,7 @@
                         <button class="btn-x btn-outline-x btn-sm-x" onclick="viewStudent('${escJs(pickId(c))}')"><i class="bi bi-eye"></i> View</button>
                         <button class="btn-x btn-outline-x btn-sm-x" onclick="generateReportCard('${escJs(pickId(c))}')"><i class="bi bi-file-earmark-text"></i> Report</button>
                         <button class="btn-x btn-outline-x btn-sm-x" onclick="printAttendanceReport('${escJs(pickId(c))}')"><i class="bi bi-printer"></i> Attendance</button>
+                        <button class="btn-x btn-outline-x btn-sm-x" onclick="navigateTo('assignments')"><i class="bi bi-journal-text"></i> Homework</button>
                     </div>
                 </div></div>
             `;}).join('');
@@ -3826,6 +3925,31 @@
                                 scales: { x: { grid: { display: false } }, y: { beginAtZero: true } } }
                         });
                     }
+                }
+            } catch (_) {}
+        }
+
+        async function loadHostelDashboard() {
+            try {
+                const resp = await Api.get('/hostel/hostels');
+                if (!resp.ok) throw new Error('Could not load hostels');
+                const hostels = toArray(await Api.json(resp));
+                document.getElementById('hmHostels').textContent = hostels.length;
+                const rooms = hostels.reduce((s, h) => s + (h.rooms || 0), 0);
+                const residents = hostels.reduce((s, h) => s + (h.occupied || 0), 0);
+                document.getElementById('hmRooms').textContent = rooms;
+                document.getElementById('hmResidents').textContent = residents;
+                document.getElementById('hmAbsent').textContent = '—';
+                const list = document.getElementById('hmList');
+                if (hostels.length === 0) {
+                    list.innerHTML = emptyState('house-door','No hostels assigned','Ask your school admin to assign hostels to you.');
+                } else {
+                    list.innerHTML = hostels.map(h => `
+                        <div class="d-flex justify-content-between align-items-center py-2" style="border-bottom:1px solid var(--line-soft);">
+                            <div><div style="font-weight:600;">${escapeHtml(h.name)}</div><div class="eyebrow">${escapeHtml(h.gender)} · ${h.rooms} rooms · ${h.occupied}/${h.capacity} beds</div></div>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="navigateTo('hostel')">Open</button>
+                        </div>
+                    `).join('');
                 }
             } catch (_) {}
         }
@@ -3934,6 +4058,40 @@
                 a.remove();
                 URL.revokeObjectURL(url);
                 showToast('Students exported', 'success');
+            } catch (e) { showToast('Export failed', 'error'); }
+        };
+
+        window.exportPaymentsCsv = async function() {
+            try {
+                const resp = await Api.get('/export/payments');
+                if (!resp.ok) throw new Error('Export failed');
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `payments-${new Date().toISOString().slice(0,10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                showToast('Payments exported', 'success');
+            } catch (e) { showToast('Export failed', 'error'); }
+        };
+
+        window.exportInvoicesCsv = async function() {
+            try {
+                const resp = await Api.get('/export/invoices');
+                if (!resp.ok) throw new Error('Export failed');
+                const blob = await resp.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `invoices-${new Date().toISOString().slice(0,10)}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+                showToast('Invoices exported', 'success');
             } catch (e) { showToast('Export failed', 'error'); }
         };
 
@@ -4102,11 +4260,70 @@
                         ${Api.can('submitPayments') ? `<button class="btn-x btn-gold-x btn-sm-x" onclick="closeModal();openRecordPaymentModal('${escJs(pickId(s))}')"><i class="bi bi-credit-card"></i> Record payment</button>` : ''}
                         <button class="btn-x btn-outline-x btn-sm-x" onclick="closeModal();generateReportCard('${escJs(pickId(s))}')"><i class="bi bi-file-earmark-text"></i> Report card</button>
                         <button class="btn-x btn-outline-x btn-sm-x" onclick="printAttendanceReport('${escJs(pickId(s))}')"><i class="bi bi-printer"></i> Attendance report</button>
+                        ${Api.can('manageStudents') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="openStudentPhotoUpload('${escJs(pickId(s))}')"><i class="bi bi-camera"></i> Photo</button>` : ''}
                         ${Api.can('manageStudents') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="closeModal();openEditStudentModal('${escJs(pickId(s))}')"><i class="bi bi-pencil"></i> Edit</button>` : ''}
                         ${Api.can('manageStudents') ? `<button class="btn-x btn-danger-x btn-sm-x ms-auto" onclick="confirmDeleteStudent('${escJs(pickId(s))}')"><i class="bi bi-trash3"></i></button>` : ''}
                     </div>
                 `;
             } catch (e) { showToast('Error loading student', 'error'); closeModal(); }
+        };
+
+        window.openStudentPhotoUpload = function(studentId) {
+            openModal('Upload student photo', `
+                <div class="csv-drop mb-3" onclick="document.getElementById('studentPhotoFile').click()">
+                    <i class="bi bi-camera"></i>
+                    <p class="eyebrow mb-1">Click to choose photo</p>
+                    <input type="file" id="studentPhotoFile" accept="image/*" style="display:none;" onchange="previewStudentPhoto(event)" />
+                    <span class="fs-small">PNG or JPG, max 4 MB</span>
+                </div>
+                <div id="studentPhotoPreview" style="text-align:center;"></div>
+                <div class="d-flex gap-2 mt-4">
+                    <button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                    <button class="btn-x btn-primary-x btn-block-x" onclick="saveStudentPhoto('${escJs(studentId)}', this)"><i class="bi bi-check-lg"></i> Save photo</button>
+                </div>
+            `);
+            window._studentPhotoData = null;
+        };
+
+        window.previewStudentPhoto = async function(ev) {
+            const file = ev.target.files[0];
+            if (!file) return;
+            if (file.size > 4 * 1024 * 1024) {
+                showToast('Photo is too large (max 4 MB)', 'error', 5000);
+                return;
+            }
+            try {
+                const dataUrl = await compressImageToDataURL(file, 600, 0.7);
+                window._studentPhotoData = dataUrl;
+                document.getElementById('studentPhotoPreview').innerHTML =
+                    `<img src="${dataUrl}" style="max-width:180px;border-radius:50%;" />`;
+            } catch (e) { showToast('Could not load image', 'error'); }
+        };
+
+        window.saveStudentPhoto = async function(studentId, btn) {
+            if (!window._studentPhotoData) { showToast('Choose a photo first', 'error'); return; }
+            setButtonLoading(btn, 'Uploading...');
+            try {
+                // Try multipart first (POST /students/:id/photo with a file)
+                // Fall back to base64 JSON body if multipart isn't accepted.
+                let resp;
+                try {
+                    // Fetch the blob from data URL for FormData
+                    const blob = await (await fetch(window._studentPhotoData)).blob();
+                    const form = new FormData();
+                    form.append('photo', blob, 'student.jpg');
+                    resp = await Api.upload('/students/' + studentId + '/photo', form);
+                } catch (_) {
+                    resp = null;
+                }
+                if (!resp || !resp.ok) {
+                    resp = await Api.post('/students/' + studentId + '/photo', { photo: window._studentPhotoData });
+                }
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                closeModal();
+                showToast('Photo saved', 'success');
+                renderPage(CURRENT_PAGE);
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
         };
 
         window.openEditStudentModal = async function(id) {
@@ -4983,7 +5200,7 @@
         PAGE_RENDERERS.payments = function() {
             return `
             <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-                <div><h5 style="font-weight:700;">Payments</h5><span class="eyebrow" id="payTermLabel">${escapeHtml(_pageData.school?.currentTerm || _pageData.school?.term || 'Current term')}</span></div>
+                <div><h5 style="font-weight:700;">Payments</h5><span class="eyebrow" id="payTermLabel">${escapeHtml(_pageData.school?.currentTerm?.name || _pageData.school?.currentTerm || _pageData.school?.term || 'Current term')}</span></div>
                 <div class="d-flex gap-2 flex-wrap">
                     ${Api.can('viewReports') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="exportPaymentsCsv()"><i class="bi bi-download"></i> Export</button>` : ''}
                     ${Api.can('submitPayments') ? `<button class="btn-x btn-gold-x btn-sm-x" onclick="openRecordPaymentModal()"><i class="bi bi-plus-lg"></i> Submit payment</button>` : ''}
@@ -5030,23 +5247,6 @@
             } catch (e) {
                 document.getElementById('paymentsBody').innerHTML = `<tr><td colspan="6" class="text-center py-4 text-danger">Failed to load payments: ${escapeHtml(e.message)}</td></tr>`;
             }
-        };
-
-        window.exportPaymentsCsv = async function() {
-            try {
-                const resp = await Api.get('/export/payments');
-                if (!resp.ok) throw new Error('Export failed');
-                const blob = await resp.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `payments-${new Date().toISOString().slice(0,10)}.csv`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                URL.revokeObjectURL(url);
-                showToast('Payments exported', 'success');
-            } catch (e) { showToast('Export failed', 'error'); }
         };
 
         function paymentActions(p) {
@@ -5250,7 +5450,10 @@
             if (!_pageData.school?.name) {
                 try {
                     const r = await Api.get('/schools/current');
-                    if (r.ok) _pageData.school = await Api.json(r);
+                    if (r.ok) {
+                        const body = await Api.json(r);
+                        _pageData.school = body.school || body;
+                    }
                 } catch (_) {}
             }
             const schoolName = _pageData.school?.name || 'School';
@@ -5327,9 +5530,7 @@
                         setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
                         return;
                     }
-                } catch (_) {
-                    // fall through to HTML printing
-                }
+                } catch (_) {}
             }
 
             const content = document.getElementById('receiptPrintArea');
@@ -5759,7 +5960,7 @@
                 const arr = toArray(attendance);
                 const rows = arr.map(r => `<tr><td>${fmtDate(r.date)}</td><td>${(r.timestamp||r.createdAt)?fmtTime(r.timestamp||r.createdAt):'—'}</td><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.remark||'')}</td></tr>`).join('');
                 const win = window.open('', '_blank');
-                win.document.write(`<html><head><title>Attendance Report — ${escapeHtml(displayName(s))}</title><style>body{font-family:system-ui;padding:20px;}table{width:100%;border-collapse:collapse;font-size:12px;}th,td{padding:6px;border:1px solid #ddd;text-align:left;}th{background:#0B4F3F;color:#fff;}h2{margin-bottom:5px;}</style></head><body><h2>${escapeHtml(displayName(s))}</h2><p>${escapeHtml(s.className || '')} · ${escapeHtml(_pageData.school?.currentTerm || _pageData.school?.term || '')}</p><table><thead><tr><th>Date</th><th>Time</th><th>Status</th><th>Remark</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No attendance records</td></tr>'}</tbody></table></body></html>`);
+                win.document.write(`<html><head><title>Attendance Report — ${escapeHtml(displayName(s))}</title><style>body{font-family:system-ui;padding:20px;}table{width:100%;border-collapse:collapse;font-size:12px;}th,td{padding:6px;border:1px solid #ddd;text-align:left;}th{background:#0B4F3F;color:#fff;}h2{margin-bottom:5px;}</style></head><body><h2>${escapeHtml(displayName(s))}</h2><p>${escapeHtml(s.className || '')} · ${escapeHtml(_pageData.school?.currentTerm?.name || _pageData.school?.currentTerm || '')}</p><table><thead><tr><th>Date</th><th>Time</th><th>Status</th><th>Remark</th></tr></thead><tbody>${rows || '<tr><td colspan="4">No attendance records</td></tr>'}</tbody></table></body></html>`);
                 win.document.close();
                 win.focus();
                 setTimeout(() => win.print(), 300);
@@ -5831,7 +6032,6 @@
                 return;
             }
 
-            // 1. Load classes.
             try {
                 const resp = await Api.get('/classes');
                 if (resp.ok) {
@@ -5844,7 +6044,6 @@
                 }
             } catch (_) {}
 
-            // 2. Session + term selects.
             const sesSel = document.getElementById('seSession');
             const termSel = document.getElementById('seTerm');
             const activeSid = currentSessionId();
@@ -5860,7 +6059,6 @@
                 ).join('')
                 : `<option value="${escJs(activeTid || '')}">${escapeHtml(_pageData.school?.currentTerm || 'Current')}</option>`;
 
-            // 3. Wire the class dropdown.
             const classSel = document.getElementById('seClass');
             classSel.setAttribute('onchange', '');
             classSel.addEventListener('change', async () => {
@@ -5871,19 +6069,16 @@
                 }
             });
 
-            // 4. Load subjects for the initial class.
             if (classSel.value) {
                 await loadSubjectsForClass(classSel.value);
             }
 
-            // 5. Wire the subject select.
             const subjectSel = document.getElementById('seSubject');
             subjectSel.setAttribute('onchange', '');
             subjectSel.addEventListener('change', () => {
                 if (classSel.value && subjectSel.value) loadScoreRoster();
             });
 
-            // 6. Fire once.
             if (classSel.value && subjectSel.value) {
                 loadScoreRoster();
             }
@@ -6140,23 +6335,6 @@
             }
         };
 
-        window.exportInvoicesCsv = async function() {
-            try {
-                const resp = await Api.get('/export/invoices');
-                if (!resp.ok) throw new Error('Export failed');
-                const blob = await resp.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = `invoices-${new Date().toISOString().slice(0,10)}.csv`;
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
-                URL.revokeObjectURL(url);
-                showToast('Invoices exported', 'success');
-            } catch (e) { showToast('Export failed', 'error'); }
-        };
-
         function renderInvoiceTable(invoices) {
             const tbody = document.getElementById('invoiceBody');
             if (invoices.length === 0) {
@@ -6173,6 +6351,7 @@
                         <button class="btn-x btn-outline-x btn-sm-x" onclick="viewInvoice('${escJs(pickId(i))}')" aria-label="View"><i class="bi bi-eye"></i></button>
                         ${Api.can('manageInvoices') && i.status !== 'PAID' && i.status !== 'CANCELLED' ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="updateInvoiceStatus('${escJs(pickId(i))}','PAID')" aria-label="Mark paid"><i class="bi bi-check-lg"></i></button>` : ''}
                         ${Api.can('manageInvoices') && i.status !== 'CANCELLED' ? `<button class="btn-x btn-danger-x btn-sm-x" onclick="updateInvoiceStatus('${escJs(pickId(i))}','CANCELLED')" aria-label="Cancel"><i class="bi bi-x-lg"></i></button>` : ''}
+                        ${Api.can('manageInvoices') ? `<button class="btn-x btn-danger-x btn-sm-x" onclick="deleteInvoice('${escJs(pickId(i))}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>` : ''}
                     </div></td>
                 </tr>
             `).join('');
@@ -6198,6 +6377,26 @@
                 showToast('Invoice updated', 'success');
                 renderPage('invoices');
             } catch (e) { showToast('Error updating invoice', 'error'); }
+        };
+
+        window.deleteInvoice = function(id) {
+            openModal('Delete invoice?', `
+                <p>This will permanently remove the invoice. Payments already recorded against it are not automatically reversed — contact your bursar if needed.</p>
+                <div class="d-flex gap-2 mt-3"><button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                <button class="btn-x btn-danger-x btn-block-x" onclick="confirmDeleteInvoice('${escJs(id)}',this)"><i class="bi bi-trash3"></i> Delete invoice</button></div>
+            `);
+        };
+
+        window.confirmDeleteInvoice = async function(id, btn) {
+            setButtonLoading(btn, 'Deleting...');
+            try {
+                const resp = await Api.del('/invoices/' + id);
+                if (!resp.ok) { showToast('Failed to delete invoice', 'error'); return; }
+                closeModal();
+                showToast('Invoice deleted', 'info');
+                renderPage('invoices');
+            } catch (e) { showToast('Network error', 'error'); }
+            finally { resetButton(btn); }
         };
 
         window.viewInvoice = function(id) {
@@ -6313,6 +6512,61 @@
             finally { resetButton(btn); }
         };
 
+        // =============================================================
+        // PUBLISH TO PARENTS
+        // =============================================================
+        window.openPublishModal = async function() {
+            if (!Api.can('publishResults')) { showToast('Only head teachers and leadership can publish results.', 'error'); return; }
+            openModal('Publish to parents', '<div class="text-center py-3">Loading...</div>');
+            try {
+                const [cResp, sResp] = await Promise.all([Api.get('/classes'), Api.get('/schools/current')]);
+                const classes = cResp.ok ? toArray(await Api.json(cResp)) : [];
+                const schoolRaw = sResp.ok ? await Api.json(sResp) : {};
+                const s = schoolRaw.school || schoolRaw;
+                window._pubSession = s.currentSessionId || extractId(s.currentSession) || '';
+                window._pubTerm = s.currentTermId || extractId(s.currentTerm) || '';
+                document.getElementById('modalBody').innerHTML = `
+                    <div class="mb-3"><label class="field-label">Class</label>
+                        <select class="input-x" id="pubClass">${classes.map(c => `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)}</option>`).join('')}</select></div>
+                    <div class="eyebrow mb-3">Uses the school's current session and term.</div>
+                    <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="pubOwing" />
+                        <label class="form-check-label" for="pubOwing">Hold back students who still owe fees</label></div>
+                    <div class="d-grid gap-2">
+                        <button class="btn-x btn-primary-x" onclick="runPublish(this,'results')"><i class="bi bi-broadcast"></i> Publish results to parents</button>
+                        <button class="btn-x btn-primary-x" onclick="runPublish(this,'cards')"><i class="bi bi-file-earmark-text"></i> Compile and publish report cards</button>
+                        <button class="btn-x btn-outline-x" onclick="runPublish(this,'unpublish')"><i class="bi bi-eye-slash"></i> Unpublish results (admin only)</button>
+                    </div>`;
+            } catch (e) { showToast(e.message, 'error'); closeModal(); }
+        };
+
+        window.runPublish = async function(btn, kind) {
+            const classId = document.getElementById('pubClass').value;
+            const sessionId = window._pubSession, termId = window._pubTerm;
+            if (!classId) { showToast('Pick a class', 'error'); return; }
+            if (!sessionId || !termId) { showToast('Set a current session and term in Settings first', 'error', 5000); return; }
+            setButtonLoading(btn, 'Working...');
+            try {
+                let resp;
+                if (kind === 'results') {
+                    resp = await Api.post('/results/publish', { classId, sessionId, termId });
+                } else if (kind === 'unpublish') {
+                    resp = await Api.post('/results/unpublish', { classId, sessionId, termId });
+                } else {
+                    const c = await Api.post('/report-cards/generate-class', { classId, sessionId, termId });
+                    if (!c.ok) throw new Error(await parseErrorResponse(c));
+                    resp = await Api.post('/report-cards/publish-class', {
+                        classId, sessionId, termId,
+                        withholdOwing: document.getElementById('pubOwing').checked
+                    });
+                }
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                const d = await Api.json(resp).catch(() => ({}));
+                const held = d.withheld?.length ? ` (${d.withheld.length} held back for fees)` : '';
+                showToast(kind === 'cards' ? `Published ${d.published ?? 0} report cards${held}` : (kind === 'results' ? `Published ${d.published ?? 'results'} to parents` : 'Unpublished'), 'success');
+                closeModal();
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
+        };
+
         // --- SUBSCRIPTION ---
         PAGE_RENDERERS.subscription = function() {
             return `
@@ -6400,7 +6654,8 @@
             try {
                 const resp = await Api.get('/schools/current');
                 if (resp.ok) {
-                    const school = await Api.json(resp);
+                    const schoolRaw = await Api.json(resp);
+                    const school = schoolRaw.school || schoolRaw;
                     document.getElementById('smsBalance').textContent = school.smsBalance || 0;
                 }
             } catch (_) {}
@@ -6479,15 +6734,13 @@
         };
 
         window.openSMSTopUpModal = function() {
-            // SMS top-up credits your balance WITHOUT a verified payment.
-            // Backend restricts this to super admins. Guard the frontend too.
             if (!Api.can('topUpSms')) {
-                showToast('Only platform admins can top up SMS credits from here. Please contact support.', 'warning', 6000);
+                showToast('Only platform admins can top up SMS credits. Please contact support for a purchase flow.', 'warning', 6000);
                 return;
             }
             openModal('Top up SMS credits', `
                 <div class="p-3 mb-3" style="background:var(--gold-light);border-radius:var(--radius-sm);">
-                    <p style="font-size:.85rem;margin:0;"><strong>Admin-only action.</strong> This will credit your school's SMS balance directly without a payment. Only use this for internal testing or goodwill credits.</p>
+                    <p style="font-size:.85rem;margin:0;"><strong>Admin-only action.</strong> This credits your school's SMS balance directly without a payment. Only use this for internal testing or goodwill credits.</p>
                 </div>
                 <div class="d-flex flex-column gap-2">
                     ${[[5000,250],[10000,500],[20000,1000],[50000,2500]].map(([a,c]) => `<button class="sms-package-btn" onclick="processSMSTopUp(${a})"><span><span class="pkg-price">${moneyNaira(a)}</span><span class="pkg-credits"> · ${c} credits</span></span><i class="bi bi-arrow-right"></i></button>`).join('')}
@@ -6601,8 +6854,8 @@
         // --- SETTINGS ---
         PAGE_RENDERERS.settings = function() {
             const school = _pageData.school || {};
-            const currentSessionName = (_academicCache.sessions.find(s => pickId(s) === currentSessionId())?.name) || school.currentSession || school.session || '—';
-            const currentTermName = (_academicCache.terms.find(t => pickId(t) === currentTermId())?.name) || school.currentTerm || school.term || '—';
+            const currentSessionName = (_academicCache.sessions.find(s => pickId(s) === currentSessionId())?.name) || (school.currentSession?.name) || school.currentSession || school.session || '—';
+            const currentTermName = (_academicCache.terms.find(t => pickId(t) === currentTermId())?.name) || (school.currentTerm?.name) || school.currentTerm || school.term || '—';
             return `
             <div class="row g-3">
                 <div class="col-lg-6">
@@ -6617,8 +6870,8 @@
                 </div>
                 <div class="col-lg-6">
                     <div class="panel mb-3"><h6 class="mb-3">Academic session</h6>
-                        <div class="mb-3"><label class="field-label">Session label</label><input class="input-x" id="setSession" value="${escapeHtml(_pageData.school?.currentSession||_pageData.school?.session||'')}" /></div>
-                        <div class="mb-1"><label class="field-label">Current term label</label><select class="input-x" id="setTerm">${['First Term','Second Term','Third Term'].map(t=>`<option ${t===(_pageData.school?.currentTerm||_pageData.school?.term)?'selected':''}>${t}</option>`).join('')}</select></div>
+                        <div class="mb-3"><label class="field-label">Session label</label><input class="input-x" id="setSession" value="${escapeHtml(_pageData.school?.currentSession?.name || _pageData.school?.currentSession || _pageData.school?.session || '')}" /></div>
+                        <div class="mb-1"><label class="field-label">Current term label</label><select class="input-x" id="setTerm">${['First Term','Second Term','Third Term'].map(t=>`<option ${t===(_pageData.school?.currentTerm?.name || _pageData.school?.currentTerm || _pageData.school?.term)?'selected':''}>${t}</option>`).join('')}</select></div>
                         <button class="btn-x btn-primary-x mt-3" onclick="saveSettings(this)">Save session</button>
                         ${Api.can('closeTerm')?`<button class="btn-x btn-danger-x mt-3 ms-2" onclick="confirmCloseTerm()"><i class="bi bi-arrow-repeat"></i> Close &amp; renew term</button>`:''}
                     </div>
@@ -6636,7 +6889,11 @@
                     </div>
                     <div class="panel"><h6 class="mb-2">Data &amp; backup</h6><p class="eyebrow mb-3">Your data is stored securely in the cloud.</p>
                         <div class="d-flex flex-column gap-2"><button class="btn-x btn-outline-x" onclick="exportCSV()"><i class="bi bi-download"></i> Export CSV</button></div>
-                        <hr class="hr-x" /><div class="d-flex gap-2"><button class="btn-x btn-outline-x btn-sm-x" onclick="openAccountMenu()" style="color:var(--slate);"><i class="bi bi-person-circle"></i> Account</button><button class="btn-x btn-danger-x btn-sm-x" onclick="logOut()" style="color:var(--danger);"><i class="bi bi-box-arrow-right"></i> Sign out</button></div>
+                        <hr class="hr-x" /><div class="d-flex gap-2 flex-wrap">
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="openChangePassword()" style="color:var(--slate);"><i class="bi bi-key"></i> Change password</button>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="openAccountMenu()" style="color:var(--slate);"><i class="bi bi-person-circle"></i> Account</button>
+                            <button class="btn-x btn-danger-x btn-sm-x" onclick="logOut()" style="color:var(--danger);"><i class="bi bi-box-arrow-right"></i> Sign out</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -6666,7 +6923,10 @@
                 showToast('Settings saved', 'success');
                 try {
                     const r = await Api.get('/schools/current');
-                    if (r.ok) _pageData.school = await Api.json(r);
+                    if (r.ok) {
+                        const body = await Api.json(r);
+                        _pageData.school = body.school || body;
+                    }
                 } catch (_) {}
                 renderPage('settings');
             } catch (e) { showToast('Network error', 'error'); }
@@ -6728,7 +6988,10 @@
                 await loadAcademicContext();
                 try {
                     const r = await Api.get('/schools/current');
-                    if (r.ok) _pageData.school = await Api.json(r);
+                    if (r.ok) {
+                        const body = await Api.json(r);
+                        _pageData.school = body.school || body;
+                    }
                 } catch (_) {}
                 closeModal();
                 showToast(`Session "${name}" created`, 'success');
@@ -6905,7 +7168,7 @@
             } catch (e) { showToast('Network error', 'error'); }
         };
 
-        // --- QUEUES (moved to /platform/queues/*) ---
+        // --- QUEUES (moved to /platform/queues) ---
         PAGE_RENDERERS.queues = function() {
             return `
             <div class="d-flex justify-content-between align-items-center mb-3">
@@ -7145,7 +7408,7 @@
             } catch (e) { showToast('Network error', 'error'); }
         };
 
-        // --- RESULTS (now with publish/unpublish) ---
+        // --- RESULTS ---
         PAGE_RENDERERS.results = function() {
             return `
             <div class="row g-3 mb-3">
@@ -7164,7 +7427,7 @@
                     <h6>Subject performance</h6>
                     <div class="d-flex gap-2 flex-wrap">
                         <button class="btn-x btn-outline-x btn-sm-x" onclick="navigateTo('scoreentry')"><i class="bi bi-pencil-square"></i> Enter scores</button>
-                        ${Api.can('publishResults') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="openPublishResultsModal()"><i class="bi bi-broadcast"></i> Publish / Unpublish</button>` : ''}
+                        ${Api.can('publishResults') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="openPublishModal()"><i class="bi bi-broadcast"></i> Publish / Unpublish</button>` : ''}
                         <button class="btn-x btn-outline-x btn-sm-x" onclick="generateSchoolWideReportCards(this)"><i class="bi bi-collection"></i> Compile ALL report cards</button>
                         <button class="btn-x btn-primary-x btn-sm-x" onclick="openBulkReportModal()"><i class="bi bi-file-earmark-text"></i> Generate for class</button>
                     </div>
@@ -7209,7 +7472,6 @@
                 tbody.innerHTML = arr.slice(0, 50).map(r => {
                     const published = !!(r.isPublished || r.publishedAt);
                     const studentId = extractId(r.studentId);
-                    const cid = extractId(r.classId);
                     return `
                     <tr>
                         <td data-label="Student"><strong>${escapeHtml(r.studentName || displayName(r.studentId))}</strong></td>
@@ -7262,65 +7524,6 @@
                 showToast(isPublished ? 'Result unpublished' : 'Result published to parents', 'success');
                 renderPage('results');
             } catch (e) { showToast('Network error', 'error'); }
-        };
-
-        window.openPublishResultsModal = async function() {
-            // Get list of classes to choose from.
-            let classes = [];
-            try {
-                const resp = await Api.get('/classes');
-                if (resp.ok) classes = toArray(await Api.json(resp));
-            } catch (_) {}
-            const ctx = ensureAcademicContext();
-            if (!ctx) return;
-
-            openModal('Publish results', `
-                <p class="eyebrow mb-3">Publishing a set of results makes them visible to parents via the Parent Portal. Only publish once you've verified the scores.</p>
-                <div class="mb-3">
-                    <label class="field-label">Scope</label>
-                    <select class="input-x" id="pubScope" onchange="document.getElementById('pubClassWrap').style.display = this.value === 'class' ? '' : 'none';">
-                        <option value="session">All results for the current term</option>
-                        <option value="class">One class only</option>
-                    </select>
-                </div>
-                <div class="mb-1" id="pubClassWrap" style="display:none;">
-                    <label class="field-label">Class</label>
-                    <select class="input-x" id="pubClass">
-                        ${classes.map(c => `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)}</option>`).join('')}
-                    </select>
-                </div>
-                <div class="d-flex gap-2 mt-4">
-                    <button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
-                    <button class="btn-x btn-primary-x btn-block-x" onclick="submitPublishResults(this)"><i class="bi bi-broadcast"></i> Publish</button>
-                </div>
-            `);
-        };
-
-        window.submitPublishResults = async function(btn) {
-            const ctx = ensureAcademicContext();
-            if (!ctx) return;
-            const scope = document.getElementById('pubScope').value;
-            const classId = scope === 'class' ? document.getElementById('pubClass').value : null;
-            if (scope === 'class' && !classId) { showToast('Pick a class', 'error'); return; }
-            setButtonLoading(btn, 'Publishing...');
-            try {
-                const resp = await Api.post('/results/publish', {
-                    sessionId: ctx.sessionId,
-                    termId: ctx.termId,
-                    classId: classId || undefined
-                });
-                if (!resp.ok) {
-                    const msg = await parseErrorResponse(resp);
-                    showToast(msg || 'Publish failed', 'error', 6000);
-                    return;
-                }
-                const data = await Api.json(resp).catch(() => ({}));
-                closeModal();
-                hapticFeedback([25, 25]);
-                showToast(`Published ${data.count || data.published || 'results'} to parents`, 'success');
-                renderPage('results');
-            } catch (e) { showToast(e.message || 'Network error', 'error'); }
-            finally { resetButton(btn); }
         };
 
         window.openBulkReportModal = function() {
@@ -7584,9 +7787,11 @@
                         ${outstanding > 0
                             ? `<div class="mt-2" style="color:var(--danger);font-weight:700;font-size:.85rem;">Owing ${money(outstanding)}</div>`
                             : `<div class="mt-2" style="color:var(--green);font-weight:700;font-size:.85rem;">Fully paid</div>`}
-                        <div class="d-flex gap-2 mt-2">
+                        <div class="d-flex gap-2 mt-2 flex-wrap">
                             <button class="btn-x btn-outline-x btn-sm-x" onclick="viewParent('${escJs(pickId(p))}')"><i class="bi bi-eye"></i> View</button>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="openEditParentModal('${escJs(pickId(p))}')"><i class="bi bi-pencil"></i> Edit</button>
                             <button class="btn-x btn-outline-x btn-sm-x" onclick="sendParentSMS('${escJs(pickId(p))}')"><i class="bi bi-chat-dots"></i> SMS</button>
+                            ${Api.can('manageParents') ? `<button class="btn-x btn-danger-x btn-sm-x ms-auto" onclick="confirmDeleteParent('${escJs(pickId(p))}','${escJs(fullName)}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>` : ''}
                         </div>
                     </div></div>
                 `;}).join('');
@@ -7639,6 +7844,66 @@
             finally { resetButton(btn); }
         };
 
+        window.openEditParentModal = async function(id) {
+            openModal('Edit parent', `<div class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</div>`);
+            try {
+                const resp = await Api.get('/parents/' + id);
+                if (!resp.ok) throw new Error('Parent not found');
+                const p = await Api.json(resp);
+                document.getElementById('modalBody').innerHTML = `
+                    <div class="row g-3">
+                        <div class="col-6"><label class="field-label">First name</label><input class="input-x" id="epFirst" value="${escapeHtml(p.firstName || '')}" /></div>
+                        <div class="col-6"><label class="field-label">Last name</label><input class="input-x" id="epLast" value="${escapeHtml(p.lastName || '')}" /></div>
+                        <div class="col-6"><label class="field-label">Phone</label><input class="input-x" id="epPhone" value="${escapeHtml(p.phone || '')}" /></div>
+                        <div class="col-6"><label class="field-label">Email</label><input class="input-x" id="epEmail" value="${escapeHtml(p.email || '')}" /></div>
+                        <div class="col-12"><label class="field-label">Address</label><input class="input-x" id="epAddress" value="${escapeHtml(p.address || '')}" /></div>
+                        <div class="col-6"><label class="field-label">Relationship</label><select class="input-x" id="epRelation">${['Guardian','Mother','Father','Other'].map(r => `<option ${r===p.relationship?'selected':''}>${r}</option>`).join('')}</select></div>
+                    </div>
+                    <div class="d-flex gap-2 mt-4"><button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button><button class="btn-x btn-primary-x btn-block-x" onclick="saveEditParent('${escJs(id)}', this)"><i class="bi bi-check-lg"></i> Save changes</button></div>
+                `;
+            } catch (e) { showToast('Error loading parent', 'error'); closeModal(); }
+        };
+
+        window.saveEditParent = async function(id, btn) {
+            setButtonLoading(btn, 'Saving...');
+            try {
+                const resp = await Api.put('/parents/' + id, {
+                    firstName: document.getElementById('epFirst').value.trim(),
+                    lastName: document.getElementById('epLast').value.trim(),
+                    fullName: document.getElementById('epFirst').value.trim() + ' ' + document.getElementById('epLast').value.trim(),
+                    phone: document.getElementById('epPhone').value.trim(),
+                    email: document.getElementById('epEmail').value.trim(),
+                    address: document.getElementById('epAddress').value.trim(),
+                    relationship: document.getElementById('epRelation').value
+                });
+                if (!resp.ok) { showToast('Failed to update parent', 'error'); return; }
+                closeModal();
+                showToast('Parent updated', 'success');
+                renderPage('parents');
+            } catch (e) { showToast(e.message || 'Network error', 'error'); }
+            finally { resetButton(btn); }
+        };
+
+        window.confirmDeleteParent = function(id, name) {
+            openModal('Remove parent?', `
+                <p>This removes <strong>${escapeHtml(name)}</strong> from your parent list. Linked students will keep their existing guardian text fields but the parent record will be gone.</p>
+                <div class="d-flex gap-2 mt-3"><button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                <button class="btn-x btn-danger-x btn-block-x" onclick="deleteParent('${escJs(id)}', this)"><i class="bi bi-trash3"></i> Remove parent</button></div>
+            `);
+        };
+
+        window.deleteParent = async function(id, btn) {
+            setButtonLoading(btn, 'Removing...');
+            try {
+                const resp = await Api.del('/parents/' + id);
+                if (!resp.ok) { showToast('Failed to delete parent', 'error'); return; }
+                closeModal();
+                showToast('Parent removed', 'info');
+                renderPage('parents');
+            } catch (e) { showToast('Network error', 'error'); }
+            finally { resetButton(btn); }
+        };
+
         window.viewParent = async function(id) {
             openModal('Parent', `<div class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</div>`);
             try {
@@ -7658,6 +7923,7 @@
                     </div>
                     <div class="d-flex gap-2 mt-3">
                         <button class="btn-x btn-outline-x flex-grow-1" onclick="closeModal()">Close</button>
+                        <button class="btn-x btn-outline-x flex-grow-1" onclick="closeModal();openEditParentModal('${escJs(id)}')"><i class="bi bi-pencil"></i> Edit</button>
                         <button class="btn-x btn-primary-x flex-grow-1" onclick="sendParentSMS('${escJs(id)}')"><i class="bi bi-chat-dots"></i> Send SMS</button>
                     </div>
                 `;
@@ -7740,6 +8006,7 @@
                                 ${hasLogin ? '<span class="chip chip-green mt-1">Has login</span>' : ''}
                                 <div class="d-flex gap-1 mt-2 flex-wrap">
                                     ${!hasLogin && Api.can('manageUsers') ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="openStaffLoginModal('${escJs(pickId(s))}','${escJs(fullName)}')"><i class="bi bi-shield-lock"></i> Create login</button>` : ''}
+                                    <button class="btn-x btn-outline-x btn-sm-x" onclick="openStaffTeachingModal('${escJs(pickId(s))}','${escJs(fullName)}')" aria-label="Teaching"><i class="bi bi-book"></i> Teaching</button>
                                     <button class="btn-x btn-outline-x btn-sm-x" onclick="openEditStaffModal('${escJs(pickId(s))}')" aria-label="Edit"><i class="bi bi-pencil"></i></button>
                                     <button class="btn-x btn-danger-x btn-sm-x" onclick="deleteStaff('${escJs(pickId(s))}')" aria-label="Delete"><i class="bi bi-trash3"></i></button>
                                 </div>
@@ -7750,6 +8017,75 @@
             } catch (e) {
                 document.getElementById('staffGrid').innerHTML = `<div class="col-12 text-center py-4 text-danger">Failed to load staff: ${escapeHtml(e.message)}</div>`;
             }
+        };
+
+        window.openStaffTeachingModal = async function(staffId, staffName) {
+            openModal('Teaching assignments — ' + staffName, `<div class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</div>`);
+            try {
+                const [classResp, subjResp, curResp] = await Promise.all([
+                    Api.get('/classes').catch(() => null),
+                    Api.get('/academics/subjects').catch(() => null),
+                    Api.get('/staff/' + staffId + '/teaching').catch(() => null),
+                ]);
+                const classes = classResp?.ok ? toArray(await Api.json(classResp)) : [];
+                const subjects = subjResp?.ok ? toArray(await Api.json(subjResp)) : [];
+                const current = curResp?.ok ? await Api.json(curResp) : {};
+                const assignedClassIds = new Set((current.classIds || []).map(extractId));
+                const assignedSubjectIds = new Set((current.subjectIds || []).map(extractId));
+                const formClassId = extractId(current.formClassId);
+
+                document.getElementById('modalBody').innerHTML = `
+                    <p class="eyebrow mb-3">Set which classes and subjects this staff member teaches. Form teachers see only their class. Subject teachers see only their subjects.</p>
+                    <div class="mb-3">
+                        <label class="field-label">Form class (optional)</label>
+                        <select class="input-x" id="teachFormClass">
+                            <option value="">— None —</option>
+                            ${classes.map(c => `<option value="${escJs(pickId(c))}" ${extractId(pickId(c)) === formClassId ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="field-label">Classes taught</label>
+                        <div class="subject-class-list">
+                            ${classes.length === 0 ? '<div class="eyebrow p-2">No classes yet.</div>' :
+                                classes.map(c => `<label>
+                                    <input type="checkbox" class="teach-cls-cb" value="${escJs(pickId(c))}" ${assignedClassIds.has(pickId(c)) ? 'checked' : ''} style="width:16px;height:16px;" />
+                                    <span class="fs-small">${escapeHtml(c.name)}</span>
+                                </label>`).join('')}
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label class="field-label">Subjects taught</label>
+                        <div class="subject-class-list">
+                            ${subjects.length === 0 ? '<div class="eyebrow p-2">No subjects yet.</div>' :
+                                subjects.map(s => `<label>
+                                    <input type="checkbox" class="teach-subj-cb" value="${escJs(pickId(s))}" ${assignedSubjectIds.has(pickId(s)) ? 'checked' : ''} style="width:16px;height:16px;" />
+                                    <span class="fs-small">${escapeHtml(s.name)}</span>
+                                </label>`).join('')}
+                        </div>
+                    </div>
+                    <div class="d-flex gap-2 mt-4">
+                        <button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                        <button class="btn-x btn-primary-x btn-block-x" onclick="saveStaffTeaching('${escJs(staffId)}', this)"><i class="bi bi-check-lg"></i> Save</button>
+                    </div>
+                `;
+            } catch (e) { showToast(e.message, 'error'); closeModal(); }
+        };
+
+        window.saveStaffTeaching = async function(staffId, btn) {
+            const formClassId = document.getElementById('teachFormClass').value || undefined;
+            const classIds = [...document.querySelectorAll('.teach-cls-cb:checked')].map(cb => cb.value);
+            const subjectIds = [...document.querySelectorAll('.teach-subj-cb:checked')].map(cb => cb.value);
+            setButtonLoading(btn, 'Saving...');
+            try {
+                const resp = await Api.put('/staff/' + staffId + '/teaching', { formClassId, classIds, subjectIds });
+                if (!resp.ok) {
+                    const msg = await parseErrorResponse(resp);
+                    showToast(msg, 'error', 6000);
+                    return;
+                }
+                closeModal();
+                showToast('Teaching assignments saved', 'success');
+            } catch (e) { showToast(e.message || 'Network error', 'error'); resetButton(btn); }
         };
 
         window.openStaffLoginModal = function(staffId, staffName) {
@@ -7765,6 +8101,9 @@
                         <option value="BURSAR">Bursar</option>
                         <option value="ADMIN">Admin</option>
                         <option value="STAFF">Staff</option>
+                        <option value="HOSTEL_MANAGER">Hostel Manager</option>
+                        <option value="MASTER_MANAGER">Master Manager</option>
+                        <option value="WORK_MANAGER">Work Manager</option>
                     </select>
                 </div>
                 <div class="mb-3">
@@ -7790,10 +8129,9 @@
             if (!password || password.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
             setButtonLoading(btn, 'Creating...');
             try {
-                // Prefer dedicated staff-login endpoint if it exists; fall back to generic /users.
                 let resp = await Api.post(`/staff/${staffId}/login`, { role, username, password });
                 if (!resp.ok && resp.status === 404) {
-                    resp = await Api.post('/users', { role, username, password, staffId, name: document.getElementById('staffLoginUsername').value.trim() });
+                    resp = await Api.post('/users', { role, username, password, staffId, name: username });
                 }
                 if (!resp.ok) {
                     const msg = await parseErrorResponse(resp);
@@ -7933,7 +8271,7 @@
                             <strong>Form teachers</strong> see only their class.
                             <strong>Subject teachers</strong> see only their subjects.
                             <strong>Bursars</strong> see finances but no academics.
-                            <strong>Parents</strong> see only their own children.
+                            <strong>Students and parents</strong> see only their own children.
                         </div>
                     </div>
                 </div>
@@ -7960,7 +8298,8 @@
                 const ROLE_LABEL = {
                     SCHOOL_OWNER: 'Proprietor', ADMIN: 'Admin', HEAD_TEACHER: 'Head Teacher',
                     FORM_TEACHER: 'Form Teacher', SUBJECT_TEACHER: 'Subject Teacher',
-                    BURSAR: 'Bursar', PARENT: 'Parent', STAFF: 'Staff'
+                    BURSAR: 'Bursar', PARENT: 'Parent', STUDENT: 'Student', STAFF: 'Staff',
+                    HOSTEL_MANAGER: 'Hostel Manager', MASTER_MANAGER: 'Master Manager', WORK_MANAGER: 'Work Manager'
                 };
                 tbody.innerHTML = arr.map(u => {
                     const scope = u.formClassName
@@ -7969,7 +8308,7 @@
                             ? `${u.subjectIds.length} subject${u.subjectIds.length === 1 ? '' : 's'}`
                             : (u.parentName
                                 ? `Parent of ${escapeHtml(u.parentName)}`
-                                : 'Full'));
+                                : (u.studentName ? `Student: ${escapeHtml(u.studentName)}` : 'Full')));
                     const locked = ['SCHOOL_OWNER', 'SUPER_ADMIN'].includes(u.role);
                     const canDelegate = u.role === 'BURSAR' && Api.can('delegateApproval');
                     const deleg = u.canApprovePayments ? '<span class="chip chip-green">Granted</span>'
@@ -8055,7 +8394,11 @@
                         <option value="HEAD_TEACHER">Head Teacher</option>
                         <option value="ADMIN">Admin</option>
                         <option value="PARENT">Parent</option>
+                        <option value="STUDENT">Student</option>
                         <option value="STAFF">Staff</option>
+                        <option value="HOSTEL_MANAGER">Hostel Manager</option>
+                        <option value="MASTER_MANAGER">Master Manager</option>
+                        <option value="WORK_MANAGER">Work Manager</option>
                     </select>
                 </div>
                 <div class="row g-3">
@@ -8115,7 +8458,7 @@
             document.getElementById('credScopeFormTeacher').style.display = role === 'FORM_TEACHER' ? '' : 'none';
             document.getElementById('credScopeSubjectTeacher').style.display = role === 'SUBJECT_TEACHER' ? '' : 'none';
             document.getElementById('credScopeParent').style.display = role === 'PARENT' ? '' : 'none';
-            document.getElementById('credScopeStaff').style.display = ['BURSAR','ADMIN','HEAD_TEACHER','STAFF'].includes(role) ? '' : 'none';
+            document.getElementById('credScopeStaff').style.display = ['BURSAR','ADMIN','HEAD_TEACHER','STAFF','HOSTEL_MANAGER','MASTER_MANAGER','WORK_MANAGER'].includes(role) ? '' : 'none';
         };
 
         window.saveCredential = async function(btn) {
@@ -8136,7 +8479,7 @@
                 payload.parentId = document.getElementById('credParent').value;
                 if (!payload.parentId) { showToast('Select a parent record', 'error'); return; }
             }
-            if (['BURSAR','ADMIN','HEAD_TEACHER','STAFF'].includes(role)) {
+            if (['BURSAR','ADMIN','HEAD_TEACHER','STAFF','HOSTEL_MANAGER','MASTER_MANAGER','WORK_MANAGER'].includes(role)) {
                 const staffId = document.getElementById('credStaff')?.value;
                 if (staffId) payload.staffId = staffId;
             }
@@ -8723,8 +9066,8 @@
                     + '/report-cards/render/' + encodeURIComponent(studentId)
                     + '?sessionId=' + encodeURIComponent(ctx.sessionId)
                     + '&termId=' + encodeURIComponent(ctx.termId)
-                    + '&sessionName=' + encodeURIComponent(_pageData.school?.currentSession || '')
-                    + '&termName=' + encodeURIComponent(_pageData.school?.currentTerm || '');
+                    + '&sessionName=' + encodeURIComponent(_pageData.school?.currentSession?.name || _pageData.school?.currentSession || '')
+                    + '&termName=' + encodeURIComponent(_pageData.school?.currentTerm?.name || _pageData.school?.currentTerm || '');
 
                 const resp = await fetch(url, {
                     headers: { Authorization: 'Bearer ' + Api._token },
@@ -8865,8 +9208,8 @@
         // --- PARENT PORTAL ---
         PAGE_RENDERERS.parentportal = function() {
             const user = Api.getUser();
-            if (user.role !== 'PARENT' && user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_OWNER') {
-                return `<div class="panel">${emptyState('lock','Access Denied','Only parents and school owners can view this page.')}</div>`;
+            if (user.role !== 'PARENT' && user.role !== 'STUDENT' && user.role !== 'SUPER_ADMIN' && user.role !== 'SCHOOL_OWNER') {
+                return `<div class="panel">${emptyState('lock','Access Denied','Only parents, students and school owners can view this page.')}</div>`;
             }
             return `
             <div class="d-flex align-items-center gap-2 mb-3"><h5 style="font-weight:700;">Parent Portal</h5><span class="chip chip-green">My children</span></div>
@@ -8877,7 +9220,6 @@
         POST_RENDER_HOOKS.parentportal = async function() {
             let children = [];
             try {
-                // Prefer the dedicated /portal endpoints.
                 const resp = await Api.get('/portal/children');
                 if (resp.ok) {
                     children = toArray(await Api.json(resp));
@@ -8922,6 +9264,8 @@
                             <button class="btn-x btn-outline-x btn-sm-x" onclick="viewStudent('${escJs(pickId(c))}')"><i class="bi bi-eye"></i> View</button>
                             <button class="btn-x btn-outline-x btn-sm-x" onclick="generateReportCard('${escJs(pickId(c))}')"><i class="bi bi-file-earmark-text"></i> Report</button>
                             <button class="btn-x btn-outline-x btn-sm-x" onclick="printAttendanceReport('${escJs(pickId(c))}')"><i class="bi bi-printer"></i> Attendance</button>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="navigateTo('assignments')"><i class="bi bi-journal-text"></i> Homework</button>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="navigateTo('timetable')"><i class="bi bi-calendar-week"></i> Timetable</button>
                         </div>
                     </div></div>
                 `;
@@ -9067,6 +9411,1037 @@
             } catch (e) { showToast('Network error', 'error'); }
         };
 
+        // =============================================================
+        // ASSIGNMENTS
+        // =============================================================
+        const ASSIGN_STAFF = ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER','FORM_TEACHER','SUBJECT_TEACHER'];
+
+        PAGE_RENDERERS.assignments = function() {
+            const role = Api.getRole();
+            const isStaff = ASSIGN_STAFF.includes(role);
+            return `
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div><h5 style="font-weight:700;">Assignments</h5><span class="eyebrow">${isStaff ? 'Set and mark homework' : 'Your homework'}</span></div>
+                ${isStaff ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="openAddAssignmentModal()"><i class="bi bi-plus-lg"></i> New assignment</button>` : ''}
+            </div>
+            <div id="assignList"><div class="text-center py-4">Loading...</div></div>`;
+        };
+
+        POST_RENDER_HOOKS.assignments = async function() {
+            const role = Api.getRole();
+            const box = document.getElementById('assignList');
+            try {
+                if (ASSIGN_STAFF.includes(role)) {
+                    const resp = await Api.get('/assignments');
+                    if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                    const arr = toArray(await Api.json(resp));
+                    if (!arr.length) { box.innerHTML = `<div class="panel">${emptyState('journal-text','No assignments','Create your first assignment.')}</div>`; return; }
+                    box.innerHTML = arr.map(a => `
+                        <div class="panel mb-2">
+                            <div class="d-flex justify-content-between flex-wrap gap-2">
+                                <div>
+                                    <strong>${escapeHtml(a.title)}</strong> <span class="assign-pill ${String(a.status||'').toLowerCase()}">${escapeHtml(a.status||'DRAFT')}</span>
+                                    <div class="eyebrow">${escapeHtml(a.className||'')} · ${escapeHtml(a.subjectName||'')} · Due ${a.dueDate ? fmtDate(a.dueDate) : '—'}</div>
+                                    <div class="eyebrow">${a.submittedCount||0} submitted · ${a.gradedCount||0} marked</div>
+                                </div>
+                                <div class="d-flex gap-2 flex-wrap align-items-start">
+                                    ${a.status === 'DRAFT' ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="assignAction('${escJs(a.id)}','publish')">Publish</button>` : ''}
+                                    ${a.status === 'PUBLISHED' ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="assignAction('${escJs(a.id)}','close')">Close</button>` : ''}
+                                    <button class="btn-x btn-outline-x btn-sm-x" onclick="openSubmissions('${escJs(a.id)}')">Submissions</button>
+                                    <button class="btn-x btn-danger-x btn-sm-x" onclick="deleteAssignment('${escJs(a.id)}')"><i class="bi bi-trash"></i></button>
+                                </div>
+                            </div>
+                        </div>`).join('');
+                } else {
+                    const cResp = await Api.get('/portal/children');
+                    let kids = [];
+                    if (cResp.ok) {
+                        kids = toArray(await Api.json(cResp));
+                    } else {
+                        const fallback = await Api.get('/students?view=parent');
+                        if (fallback.ok) kids = toArray(await Api.json(fallback));
+                    }
+                    if (!kids.length) { box.innerHTML = `<div class="panel">${emptyState('people','No student linked','Ask your school to link your account.')}</div>`; return; }
+                    window._assignKids = kids;
+                    box.innerHTML = `
+                        <div class="mb-3"><select class="input-x" id="assignKid" onchange="loadKidAssignments(this.value)">
+                            ${kids.map(k => `<option value="${escJs(pickId(k))}">${escapeHtml(displayName(k))}</option>`).join('')}
+                        </select></div>
+                        <div id="kidAssignments"></div>`;
+                    loadKidAssignments(pickId(kids[0]));
+                }
+            } catch (e) {
+                box.innerHTML = `<div class="panel text-danger">${escapeHtml(e.message)}</div>`;
+            }
+        };
+
+        window.loadKidAssignments = async function(studentId) {
+            const el = document.getElementById('kidAssignments');
+            if (!el) return;
+            el.innerHTML = '<div class="text-center py-3">Loading...</div>';
+            try {
+                const resp = await Api.get('/portal/children/' + studentId + '/assignments');
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                const arr = toArray(await Api.json(resp));
+                if (!arr.length) { el.innerHTML = `<div class="panel">${emptyState('journal-text','No assignments yet','Nothing has been set for this class.')}</div>`; return; }
+                const canSubmit = Api.getRole() === 'STUDENT';
+                el.innerHTML = arr.map(a => `
+                    <div class="panel mb-2">
+                        <div class="d-flex justify-content-between flex-wrap gap-2 align-items-start">
+                            <div class="flex-grow-1">
+                                <strong>${escapeHtml(a.title)}</strong>
+                                <div class="eyebrow">${escapeHtml(a.subjectName||'')} · Due ${a.dueDate ? fmtDate(a.dueDate) : '—'} ${a.overdue ? '· <span class="text-danger">Overdue</span>' : ''}</div>
+                                ${a.instructions ? `<p class="mt-2 mb-2">${escapeHtml(a.instructions)}</p>` : ''}
+                                ${a.submission
+                                    ? `<div class="eyebrow">Status: ${escapeHtml(a.submission.status)}${a.submission.score != null ? ` · Score: ${a.submission.score}/${a.maxScore}` : ''}</div>
+                                       ${a.submission.feedback ? `<div class="eyebrow">Feedback: ${escapeHtml(a.submission.feedback)}</div>` : ''}`
+                                    : '<div class="eyebrow">Not submitted</div>'}
+                            </div>
+                            ${canSubmit && a.status === 'PUBLISHED' && !(a.submission && a.submission.status === 'GRADED')
+                                ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="openSubmitAssignment('${escJs(studentId)}','${escJs(a.id)}')">${a.submission ? 'Resubmit' : 'Submit work'}</button>` : ''}
+                        </div>
+                    </div>`).join('');
+            } catch (e) {
+                el.innerHTML = `<div class="panel text-danger">${escapeHtml(e.message)}</div>`;
+            }
+        };
+
+        window.openSubmitAssignment = function(studentId, assignmentId) {
+            openModal('Submit work', `
+                <div class="mb-3"><label class="field-label">Your answer</label><textarea class="input-x" id="subText" rows="6"></textarea></div>
+                <div class="d-flex gap-2 mt-3">
+                    <button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                    <button class="btn-x btn-primary-x btn-block-x" onclick="sendSubmission(this,'${escJs(studentId)}','${escJs(assignmentId)}')">Submit</button>
+                </div>`);
+        };
+
+        window.sendSubmission = async function(btn, studentId, assignmentId) {
+            const text = document.getElementById('subText').value.trim();
+            if (!text) { showToast('Write your answer first', 'error'); return; }
+            setButtonLoading(btn, 'Submitting...');
+            try {
+                const resp = await Api.post('/portal/children/' + studentId + '/assignments/' + assignmentId + '/submit', { text });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                closeModal(); showToast('Submitted', 'success');
+                loadKidAssignments(studentId);
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
+        };
+
+        window.openAddAssignmentModal = async function() {
+            openModal('New assignment', `
+                <div class="mb-3"><label class="field-label">Title</label><input class="input-x" id="asTitle" /></div>
+                <div class="mb-3"><label class="field-label">Class</label><select class="input-x" id="asClass"><option>Loading...</option></select></div>
+                <div class="mb-3"><label class="field-label">Subject</label><select class="input-x" id="asSubject"><option value="">Pick a class first</option></select></div>
+                <div class="mb-3"><label class="field-label">Instructions</label><textarea class="input-x" id="asInstr" rows="4"></textarea></div>
+                <div class="mb-3"><label class="field-label">Due date</label><input class="input-x" id="asDue" type="date" /></div>
+                <div class="mb-3"><label class="field-label">Max score</label><input class="input-x" id="asMax" type="number" value="10" /></div>
+                <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="asPublish" checked /><label class="form-check-label" for="asPublish">Publish now (notifies students and parents)</label></div>
+                <div class="d-flex gap-2 mt-3">
+                    <button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                    <button class="btn-x btn-primary-x btn-block-x" onclick="saveAssignment(this)">Save</button>
+                </div>`);
+            try {
+                const resp = await Api.get('/classes');
+                const classes = toArray(await Api.json(resp));
+                const sel = document.getElementById('asClass');
+                sel.innerHTML = classes.map(c => `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)}</option>`).join('') || '<option value="">No classes</option>';
+                const loadSubs = async () => {
+                    const r = await Api.get('/academics/subjects?classId=' + sel.value);
+                    const subs = r.ok ? toArray(await Api.json(r)) : [];
+                    document.getElementById('asSubject').innerHTML = subs.map(s => `<option value="${escJs(pickId(s))}">${escapeHtml(s.name)}</option>`).join('') || '<option value="">No subjects</option>';
+                };
+                sel.onchange = loadSubs;
+                if (sel.value) loadSubs();
+            } catch (_) {}
+        };
+
+        window.saveAssignment = async function(btn) {
+            const body = {
+                title: document.getElementById('asTitle').value.trim(),
+                classId: document.getElementById('asClass').value,
+                subjectId: document.getElementById('asSubject').value,
+                instructions: document.getElementById('asInstr').value.trim(),
+                dueDate: document.getElementById('asDue').value || undefined,
+                maxScore: Number(document.getElementById('asMax').value || 10),
+                publish: document.getElementById('asPublish').checked
+            };
+            if (!body.title || !body.classId || !body.subjectId) { showToast('Fill title, class and subject', 'error'); return; }
+            setButtonLoading(btn, 'Saving...');
+            try {
+                const resp = await Api.post('/assignments', body);
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                closeModal(); showToast('Assignment saved', 'success'); renderPage('assignments');
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
+        };
+
+        window.assignAction = async function(id, action) {
+            try {
+                const resp = await Api.post('/assignments/' + id + '/' + action, {});
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                showToast('Done', 'success'); renderPage('assignments');
+            } catch (e) { showToast(e.message, 'error'); }
+        };
+
+        window.deleteAssignment = async function(id) {
+            if (!confirm('Delete this assignment and all its submissions?')) return;
+            try {
+                const resp = await Api.del('/assignments/' + id);
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                showToast('Deleted', 'success'); renderPage('assignments');
+            } catch (e) { showToast(e.message, 'error'); }
+        };
+
+        window.openSubmissions = async function(id) {
+            openModal('Submissions', '<div class="text-center py-3">Loading...</div>');
+            try {
+                const resp = await Api.get('/assignments/' + id + '/submissions');
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                const d = await Api.json(resp);
+                const rows = d.rows || toArray(d);
+                const submitted = d.submitted != null ? d.submitted : rows.filter(r => r.submissionId).length;
+                const total = d.total != null ? d.total : rows.length;
+                document.getElementById('modalBody').innerHTML = `
+                    <div class="mb-2 eyebrow">${submitted} of ${total} students have submitted</div>
+                    ${rows.map(r => `
+                        <div class="panel mb-2">
+                            <strong>${escapeHtml(r.studentName || displayName(r.studentId))}</strong> <span class="eyebrow">${escapeHtml(r.status||'')}${r.late ? ' · late' : ''}</span>
+                            ${r.text ? `<p class="mt-2 mb-2">${escapeHtml(r.text)}</p>` : ''}
+                            ${r.submissionId ? `
+                            <div class="d-flex gap-2 align-items-center mt-2">
+                                <input class="input-x" id="sc_${escJs(r.submissionId)}" type="number" placeholder="Score" value="${r.score ?? ''}" style="max-width:110px;" />
+                                <button class="btn-x btn-primary-x btn-sm-x" onclick="gradeSubmission('${escJs(id)}','${escJs(r.submissionId)}')">Save mark</button>
+                            </div>` : ''}
+                        </div>`).join('') || '<div class="eyebrow">No students in this class.</div>'}
+                `;
+            } catch (e) { showToast(e.message, 'error'); closeModal(); }
+        };
+
+        window.gradeSubmission = async function(assignmentId, submissionId) {
+            const score = document.getElementById('sc_' + submissionId).value;
+            if (score === '') { showToast('Enter a score', 'error'); return; }
+            try {
+                const resp = await Api.put('/assignments/' + assignmentId + '/submissions/' + submissionId + '/grade', { score: Number(score) });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                showToast('Mark saved', 'success');
+            } catch (e) { showToast(e.message, 'error'); }
+        };
+
+        // =============================================================
+        // TIMETABLE
+        // =============================================================
+        PAGE_RENDERERS.timetable = function() {
+            return `
+            <div class="mb-3"><h5 style="font-weight:700;">Timetable</h5><span class="eyebrow">Weekly schedule</span></div>
+            <div id="ttBox"><div class="text-center py-4">Loading...</div></div>`;
+        };
+
+        POST_RENDER_HOOKS.timetable = async function() {
+            const box = document.getElementById('ttBox');
+            try {
+                const role = Api.getRole();
+                let path;
+                if (role === 'PARENT' || role === 'STUDENT') {
+                    const c = await Api.get('/portal/children');
+                    const kids = toArray(await Api.json(c));
+                    if (!kids.length) { box.innerHTML = `<div class="panel">${emptyState('calendar-week','No student linked','')}</div>`; return; }
+                    path = '/portal/children/' + pickId(kids[0]) + '/timetable';
+                } else if (['FORM_TEACHER','SUBJECT_TEACHER'].includes(role)) {
+                    path = '/timetable/mine';
+                } else {
+                    path = '/timetable';
+                }
+                const resp = await Api.get(path);
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                const data = await Api.json(resp);
+                const arr = toArray(data.entries || data.slots || data);
+                if (!arr.length) { box.innerHTML = `<div class="panel">${emptyState('calendar-week','No timetable yet','')}</div>`; return; }
+                // Group by day if day names are present, otherwise flat list
+                box.innerHTML = `<div class="panel" style="padding:0;"><div class="table-wrap"><table class="tbl"><thead><tr><th>Day</th><th>Time</th><th>Subject</th><th>Class</th></tr></thead><tbody>
+                    ${arr.map(t => `<tr>
+                        <td data-label="Day">${escapeHtml(String(t.day ?? t.dayOfWeek ?? ''))}</td>
+                        <td data-label="Time">${escapeHtml((t.startTime||'') + (t.endTime ? ' - ' + t.endTime : ''))}</td>
+                        <td data-label="Subject">${escapeHtml(t.subjectName || t.subjectId?.name || '')}</td>
+                        <td data-label="Class">${escapeHtml(t.className || t.classId?.name || '')}</td>
+                    </tr>`).join('')}</tbody></table></div></div>`;
+            } catch (e) { box.innerHTML = `<div class="panel text-danger">${escapeHtml(e.message)}</div>`; }
+        };
+
+        // =============================================================
+        // ADMISSIONS (full)
+        // =============================================================
+        const ADM_LABELS = {
+            SUBMITTED: 'Received', UNDER_REVIEW: 'Under review', INTERVIEW_SCHEDULED: 'Interview scheduled',
+            ADMITTED: 'Admitted', WAITLISTED: 'Waitlisted', REJECTED: 'Rejected', ENROLLED: 'Enrolled', WITHDRAWN: 'Withdrawn'
+        };
+        const ADM_MANDATORY = ['applicantFirstName', 'applicantLastName', 'parentFirstName', 'parentLastName', 'parentPhone'];
+        window._adm = { tab: 'apps', site: null, classes: [], fields: [], page: 1, total: 0, cur: null };
+
+        function admCanWrite() { return ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN','HEAD_TEACHER'].includes(Api.getRole()); }
+        function admCanEnrol() { return ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN'].includes(Api.getRole()); }
+
+        PAGE_RENDERERS.admissions = function() {
+            return `
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                <div><h5 style="font-weight:700;">Admissions</h5><span class="eyebrow">Applications, approvals and your admission form</span></div>
+                ${admCanWrite() ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="openOfficeApplication()"><i class="bi bi-plus-lg"></i> Add applicant</button>` : ''}
+            </div>
+            <div id="admBanner"></div>
+            <div class="row g-2 mb-3" id="admStats"></div>
+            <div class="d-flex gap-2 mb-3">
+                <button class="btn-x btn-sm-x" id="admTabApps" onclick="admTab('apps')">Applications</button>
+                <button class="btn-x btn-sm-x" id="admTabForm" onclick="admTab('form')">Form &amp; settings</button>
+            </div>
+            <div id="admBody"></div>`;
+        };
+
+        POST_RENDER_HOOKS.admissions = async function() {
+            window._adm.page = 1;
+            try {
+                const [sr, cr, st] = await Promise.all([Api.get('/site'), Api.get('/classes'), Api.get('/admissions/stats')]);
+                if (sr.ok) window._adm.site = await Api.json(sr);
+                if (cr.ok) window._adm.classes = toArray(await Api.json(cr));
+                if (st.ok) admRenderStats(await Api.json(st));
+            } catch (_) {}
+            admRenderBanner();
+            admTab('apps');
+        };
+
+        function admRenderStats(st) {
+            const by = st.byStatus || {};
+            const box = (n, l) => `<div class="col-6 col-md-3"><div class="stat tone-slate text-center"><div class="figure-md num">${n || 0}</div><div class="label-caps">${l}</div></div></div>`;
+            document.getElementById('admStats').innerHTML =
+                box(st.pendingReview, 'Need review') + box(st.thisWeek, 'This week') + box(by.ADMITTED, 'Admitted') + box(by.ENROLLED, 'Enrolled');
+        }
+
+        function admRenderBanner() {
+            const el = document.getElementById('admBanner');
+            const s = window._adm.site;
+            if (!el) return;
+            if (!s) { el.innerHTML = ''; return; }
+            const a = s.admissions || {};
+            const live = !!s.published && !!a.open;
+            el.innerHTML = `
+            <div class="panel mb-3" style="border-left:3px solid ${live ? 'var(--green)' : 'var(--gold)'};">
+                <div class="d-flex justify-content-between flex-wrap gap-2 align-items-center">
+                    <div>
+                        <strong>${live ? 'Admissions are open' : 'Admissions are closed'}</strong>
+                        <div class="eyebrow">${!s.published ? 'Your website is not published, so nobody can see the form. Publish it on the Website page.' : (a.closingDate ? 'Closing date: ' + fmtDate(a.closingDate) : 'No closing date set')}</div>
+                        ${s.publicUrl ? `<div class="eyebrow"><a href="${escapeHtml(s.publicUrl)}" target="_blank" rel="noopener">${escapeHtml(s.publicUrl)}</a></div>` : ''}
+                    </div>
+                    ${admCanEnrol() ? `<button class="btn-x ${a.open ? 'btn-outline-x' : 'btn-primary-x'} btn-sm-x" onclick="admToggleOpen(${a.open ? 'false' : 'true'})">${a.open ? 'Close admissions' : 'Open admissions'}</button>` : ''}
+                </div>
+            </div>`;
+        }
+
+        window.admToggleOpen = async function(open) {
+            if (!open && !confirm('Close admissions? The online form will stop accepting applications.')) return;
+            try {
+                const resp = await Api.put('/site', { admissions: { open } });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                window._adm.site = await Api.json(resp);
+                admRenderBanner();
+                showToast(open ? 'Admissions opened' : 'Admissions closed', 'success');
+            } catch (e) { showToast(e.message, 'error'); }
+        };
+
+        window.admTab = function(tab) {
+            window._adm.tab = tab;
+            document.getElementById('admTabApps').className = 'btn-x btn-sm-x ' + (tab === 'apps' ? 'btn-primary-x' : 'btn-outline-x');
+            document.getElementById('admTabForm').className = 'btn-x btn-sm-x ' + (tab === 'form' ? 'btn-primary-x' : 'btn-outline-x');
+            if (tab === 'apps') admRenderApps(); else admRenderForm();
+        };
+
+        // ---------- Applications ----------
+        function admRenderApps() {
+            document.getElementById('admBody').innerHTML = `
+            <div class="d-flex gap-2 flex-wrap mb-3">
+                <select class="input-x" id="admFilter" style="max-width:200px;" onchange="admLoad(1)">
+                    <option value="">All statuses</option>
+                    ${Object.keys(ADM_LABELS).map(k => `<option value="${k}">${ADM_LABELS[k]}</option>`).join('')}
+                </select>
+                <input class="input-x" id="admSearch" placeholder="Search name, phone or number" style="max-width:260px;" oninput="admSearchDebounced()" />
+            </div>
+            <div id="admList"></div>
+            <div id="admPager" class="d-flex justify-content-between align-items-center mt-2"></div>`;
+            admLoad(1);
+        }
+
+        let _admTimer;
+        window.admSearchDebounced = function() { clearTimeout(_admTimer); _admTimer = setTimeout(() => admLoad(1), 400); };
+
+        window.admLoad = async function(page) {
+            const list = document.getElementById('admList');
+            if (!list) return;
+            list.innerHTML = '<div class="text-center py-4">Loading...</div>';
+            try {
+                const q = new URLSearchParams({ page: String(page), limit: '20' });
+                const f = document.getElementById('admFilter').value;
+                const s = document.getElementById('admSearch').value.trim();
+                if (f) q.set('status', f);
+                if (s) q.set('search', s);
+                const resp = await Api.get('/admissions?' + q.toString());
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                const d = await Api.json(resp);
+                const items = toArray(d);
+                window._adm.page = page;
+                window._adm.total = d.total || items.length;
+                if (!items.length) {
+                    list.innerHTML = `<div class="panel">${emptyState('person-plus', 'No applications', 'Applications appear here when parents apply online or you add them yourself.')}</div>`;
+                    document.getElementById('admPager').innerHTML = '';
+                    return;
+                }
+                list.innerHTML = items.map(a => `
+                <div class="panel mb-2" style="cursor:pointer;" onclick="admOpen('${escJs(a.id)}')">
+                    <div class="d-flex justify-content-between flex-wrap gap-2">
+                        <div>
+                            <strong>${escapeHtml(a.applicantName || 'Applicant')}</strong>
+                            <div class="eyebrow">${escapeHtml(a.applicationNumber || '')} · ${escapeHtml(a.classAppliedName || 'No class chosen')}</div>
+                            <div class="eyebrow">${escapeHtml(a.parentName || '')} · ${escapeHtml(a.parent?.phone || '')} · ${fmtDate(a.submittedAt)}</div>
+                        </div>
+                        <span class="chip ${['ADMITTED', 'ENROLLED'].includes(a.status) ? 'chip-green' : ''}">${escapeHtml(ADM_LABELS[a.status] || a.status)}</span>
+                    </div>
+                </div>`).join('');
+                const pages = Math.max(1, Math.ceil(window._adm.total / 20));
+                document.getElementById('admPager').innerHTML = `
+                    <button class="btn-x btn-outline-x btn-sm-x" ${page <= 1 ? 'disabled' : ''} onclick="admLoad(${page - 1})">Previous</button>
+                    <span class="eyebrow">Page ${page} of ${pages} · ${window._adm.total} total</span>
+                    <button class="btn-x btn-outline-x btn-sm-x" ${page >= pages ? 'disabled' : ''} onclick="admLoad(${page + 1})">Next</button>`;
+            } catch (e) { list.innerHTML = `<div class="panel text-danger">${escapeHtml(e.message)}</div>`; }
+        };
+
+        window.admOpen = async function(id) {
+            openModal('Application', '<div class="text-center py-4">Loading...</div>');
+            try {
+                const resp = await Api.get('/admissions/' + id);
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                const a = await Api.json(resp);
+                window._adm.cur = a;
+                const labels = {};
+                ((window._adm.site && window._adm.site.admissions && window._adm.site.admissions.fields) || []).forEach(f => { labels[f.key] = f.label; });
+                const open = ['SUBMITTED', 'UNDER_REVIEW', 'INTERVIEW_SCHEDULED', 'WAITLISTED', 'ADMITTED'].includes(a.status);
+                const row = (k, v) => `<div class="d-flex justify-content-between gap-3 py-1" style="border-bottom:1px solid var(--line-soft);"><span class="eyebrow">${escapeHtml(k)}</span><span style="text-align:right;">${escapeHtml(v == null || v === '' ? '—' : String(v))}</span></div>`;
+                const ap = a.applicant || {}, pa = a.parent || {};
+                const answers = Object.entries(a.answers || {}).map(([k, v]) => row(labels[k] || k, v)).join('');
+                const btn = (cls, label, fn) => `<button class="btn-x ${cls} btn-sm-x" onclick="${fn}">${label}</button>`;
+                let actions = '';
+                if (admCanWrite()) {
+                    if (a.status === 'SUBMITTED') actions += btn('btn-outline-x', 'Start review', `admSetStatus('${escJs(id)}','UNDER_REVIEW')`);
+                    if (open) {
+                        actions += btn('btn-outline-x', 'Schedule interview', `admInterview('${escJs(id)}')`);
+                        actions += btn('btn-outline-x', 'Waitlist', `admWaitlist('${escJs(id)}')`);
+                    }
+                    if (admCanEnrol() && open) {
+                        if (a.status === 'ADMITTED') actions += btn('btn-primary-x', 'Enrol now', `admApproveModal('${escJs(id)}','enroll')`);
+                        else {
+                            actions += btn('btn-primary-x', 'Approve and enrol', `admApproveModal('${escJs(id)}','approve')`);
+                            actions += btn('btn-outline-x', 'Offer place only', `admApproveModal('${escJs(id)}','offer')`);
+                        }
+                    }
+                    if (open) {
+                        actions += btn('btn-danger-x', 'Reject', `admReject('${escJs(id)}')`);
+                        actions += btn('btn-outline-x', 'Withdraw', `admSetStatus('${escJs(id)}','WITHDRAWN')`);
+                    }
+                    if (['REJECTED', 'WITHDRAWN'].includes(a.status)) actions += btn('btn-outline-x', 'Reopen', `admSetStatus('${escJs(id)}','UNDER_REVIEW')`);
+                }
+                document.getElementById('modalTitle').textContent = `${a.applicantName || 'Application'} · ${a.applicationNumber || ''}`;
+                document.getElementById('modalBody').innerHTML = `
+                    <div class="mb-2"><span class="chip ${['ADMITTED', 'ENROLLED'].includes(a.status) ? 'chip-green' : ''}">${escapeHtml(ADM_LABELS[a.status] || a.status)}</span>
+                        <span class="eyebrow ms-2">${a.source === 'OFFICE' ? 'Added by office' : 'Online'} · ${fmtDateTime(a.submittedAt)}</span></div>
+                    <h6 class="mt-3">Child</h6>
+                    ${row('Name', a.applicantName)}${row('Gender', ap.gender)}${row('Date of birth', ap.dateOfBirth ? fmtDate(ap.dateOfBirth) : '')}
+                    ${row('Class applied', a.classAppliedName)}${row('Previous school', ap.previousSchool)}${row('Address', ap.address)}
+                    <h6 class="mt-3">Parent / guardian</h6>
+                    ${row('Name', a.parentName)}${row('Phone', pa.phone)}${row('Email', pa.email)}${row('Relationship', pa.relationship)}${row('Address', pa.address)}
+                    ${answers ? `<h6 class="mt-3">Other answers</h6>${answers}` : ''}
+                    ${a.interview && a.interview.date ? `<h6 class="mt-3">Interview</h6>${row('When', fmtDateTime(a.interview.date))}${row('Where', a.interview.location)}` : ''}
+                    ${a.decision && a.decision.reason ? `<h6 class="mt-3">Decision note</h6><div>${escapeHtml(a.decision.reason)}</div>` : ''}
+                    <h6 class="mt-3">Notes</h6>
+                    ${(a.notes || []).map(n => `<div class="p-2 mb-1" style="background:var(--line-soft);border-radius:var(--radius-sm);"><div style="font-size:.85rem;">${escapeHtml(n.text)}</div><div class="eyebrow">${escapeHtml(n.byName || '')} · ${fmtDateTime(n.at)}</div></div>`).join('') || '<div class="eyebrow">No notes yet.</div>'}
+                    ${admCanWrite() ? `<div class="d-flex gap-2 mt-2"><input class="input-x" id="admNote" placeholder="Add a note" /><button class="btn-x btn-outline-x btn-sm-x" onclick="admAddNote('${escJs(id)}')">Add</button></div>` : ''}
+                    <h6 class="mt-3">History</h6>
+                    ${(a.history || []).map(h => `<div class="eyebrow">${fmtDateTime(h.at)} · ${escapeHtml(ADM_LABELS[h.status] || h.status)}${h.byName ? ' · ' + escapeHtml(h.byName) : ''}${h.note ? ' · ' + escapeHtml(h.note) : ''}</div>`).join('') || '<div class="eyebrow">—</div>'}
+                    ${actions ? `<div class="d-flex gap-2 flex-wrap mt-4">${actions}</div>` : ''}
+                `;
+            } catch (e) { showToast(e.message, 'error'); closeModal(); }
+        };
+
+        window.admAddNote = async function(id) {
+            const text = document.getElementById('admNote').value.trim();
+            if (!text) return;
+            try {
+                const resp = await Api.post('/admissions/' + id + '/notes', { text });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                admOpen(id);
+            } catch (e) { showToast(e.message, 'error'); }
+        };
+
+        window.admSetStatus = async function(id, status, extra) {
+            try {
+                const resp = await Api.post('/admissions/' + id + '/status', Object.assign({ status }, extra || {}));
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                showToast('Updated', 'success');
+                closeModal(); renderPage('admissions');
+            } catch (e) { showToast(e.message, 'error'); }
+        };
+
+        window.admWaitlist = function(id) {
+            const reason = prompt('Note for the waiting list (optional):');
+            if (reason === null) return;
+            admSetStatus(id, 'WAITLISTED', { reason });
+        };
+
+        window.admReject = async function(id) {
+            const reason = prompt('Reason for rejection (optional). The parent is told by SMS that no place is available.');
+            if (reason === null) return;
+            try {
+                const resp = await Api.post('/admissions/' + id + '/reject', { reason });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                showToast('Application rejected', 'success');
+                closeModal(); renderPage('admissions');
+            } catch (e) { showToast(e.message, 'error'); }
+        };
+
+        window.admInterview = function(id) {
+            openModal('Schedule interview', `
+                <div class="mb-3"><label class="field-label">Date and time</label><input class="input-x" id="ivWhen" type="datetime-local" /></div>
+                <div class="mb-3"><label class="field-label">Place</label><input class="input-x" id="ivWhere" placeholder="e.g. Principal's office" /></div>
+                <div class="mb-3"><label class="field-label">Notes</label><textarea class="input-x" id="ivNotes" rows="2"></textarea></div>
+                <div class="eyebrow mb-3">The parent receives an SMS with the date and place.</div>
+                <div class="d-flex gap-2"><button class="btn-x btn-outline-x" onclick="admOpen('${escJs(id)}')">Back</button>
+                <button class="btn-x btn-primary-x btn-block-x" onclick="admSaveInterview(this,'${escJs(id)}')">Schedule</button></div>`);
+        };
+
+        window.admSaveInterview = async function(btn, id) {
+            const when = document.getElementById('ivWhen').value;
+            if (!when) { showToast('Pick a date and time', 'error'); return; }
+            setButtonLoading(btn, 'Saving...');
+            try {
+                const resp = await Api.post('/admissions/' + id + '/status', {
+                    status: 'INTERVIEW_SCHEDULED',
+                    interview: { date: new Date(when).toISOString(), location: document.getElementById('ivWhere').value, notes: document.getElementById('ivNotes').value }
+                });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                showToast('Interview scheduled', 'success');
+                closeModal(); renderPage('admissions');
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
+        };
+
+        // mode: 'approve' (admit + enrol), 'offer' (admit only), 'enroll' (enrol an admitted applicant)
+        window.admApproveModal = function(id, mode) {
+            const a = window._adm.cur || {};
+            const classes = window._adm.classes || [];
+            const enrolling = mode !== 'offer';
+            openModal(mode === 'offer' ? 'Offer a place' : 'Approve and enrol', `
+                ${enrolling ? `
+                <div class="mb-3"><label class="field-label">Class</label>
+                    <select class="input-x" id="apCls">${classes.map(c => `<option value="${escJs(pickId(c))}" ${String(pickId(c)) === String(a.classAppliedId) ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('')}</select></div>
+                <div class="mb-3"><label class="field-label">Admission number (optional)</label><input class="input-x" id="apNo" placeholder="Leave blank to generate" /></div>
+                <div class="form-check mb-3"><input class="form-check-input" type="checkbox" id="apLogin" checked /><label class="form-check-label" for="apLogin">Create a student login</label></div>
+                <div class="eyebrow mb-3">This creates the student record, the first invoice and the parent's portal login.</div>`
+                : `<div class="eyebrow mb-3">The parent gets an SMS that a place has been offered. You can enrol later.</div>`}
+                <div class="d-flex gap-2"><button class="btn-x btn-outline-x" onclick="admOpen('${escJs(id)}')">Back</button>
+                <button class="btn-x btn-primary-x btn-block-x" onclick="admRunApprove(this,'${escJs(id)}','${mode}')">Confirm</button></div>`);
+        };
+
+        window.admRunApprove = async function(btn, id, mode) {
+            setButtonLoading(btn, 'Working...');
+            try {
+                let path, body;
+                if (mode === 'offer') { path = '/admissions/' + id + '/approve'; body = { enroll: false }; }
+                else {
+                    body = {
+                        classId: document.getElementById('apCls').value,
+                        admissionNumber: document.getElementById('apNo').value.trim() || undefined,
+                        createStudentLogin: document.getElementById('apLogin').checked
+                    };
+                    if (!body.classId) throw new Error('Pick a class');
+                    path = '/admissions/' + id + (mode === 'enroll' ? '/enroll' : '/approve');
+                    if (mode === 'approve') body.enroll = true;
+                }
+                const resp = await Api.post(path, body);
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                const r = await Api.json(resp);
+                if (!r.enrolled) { showToast('Place offered', 'success'); closeModal(); renderPage('admissions'); return; }
+                const c = r.credentials;
+                const rows = c ? Object.entries(c).map(([k, v]) => `<div class="mb-2"><div class="eyebrow">${escapeHtml(k)}</div><div><strong>${escapeHtml(typeof v === 'object' ? JSON.stringify(v) : String(v))}</strong></div></div>`).join('') : '<div class="eyebrow">No new login was created.</div>';
+                openModal('Student enrolled', `
+                    <p>${escapeHtml((r.student && (r.student.fullName || r.student.name)) || (window._adm.cur && window._adm.cur.applicantName) || 'The applicant')} is now enrolled.</p>
+                    <div class="panel">${rows}</div>
+                    <div class="eyebrow mt-2 mb-3">Login details are shown once. Copy them now.</div>
+                    <button class="btn-x btn-primary-x btn-block-x" onclick="closeModal();renderPage('admissions')">Done</button>`);
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
+        };
+
+        window.openOfficeApplication = function() {
+            const classes = window._adm.classes || [];
+            openModal('Add applicant', `
+                <h6>Child</h6>
+                <div class="row g-2 mb-2">
+                    <div class="col-6"><input class="input-x" id="ofAF" placeholder="First name" /></div>
+                    <div class="col-6"><input class="input-x" id="ofAL" placeholder="Last name" /></div>
+                    <div class="col-6"><select class="input-x" id="ofG"><option value="">Gender</option><option value="MALE">Male</option><option value="FEMALE">Female</option></select></div>
+                    <div class="col-6"><input class="input-x" id="ofDob" type="date" /></div>
+                    <div class="col-12"><select class="input-x" id="ofCls"><option value="">Class applying for</option>${classes.map(c => `<option value="${escJs(pickId(c))}">${escapeHtml(c.name)}</option>`).join('')}</select></div>
+                </div>
+                <h6>Parent / guardian</h6>
+                <div class="row g-2 mb-3">
+                    <div class="col-6"><input class="input-x" id="ofPF" placeholder="First name" /></div>
+                    <div class="col-6"><input class="input-x" id="ofPL" placeholder="Last name" /></div>
+                    <div class="col-12"><input class="input-x" id="ofPh" type="tel" placeholder="Phone number" /></div>
+                    <div class="col-12"><input class="input-x" id="ofPe" type="email" placeholder="Email (optional)" /></div>
+                </div>
+                <div class="d-flex gap-2"><button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                <button class="btn-x btn-primary-x btn-block-x" onclick="saveOfficeApplication(this)">Save</button></div>`);
+        };
+
+        window.saveOfficeApplication = async function(btn) {
+            const v = id => document.getElementById(id).value.trim();
+            const body = {
+                applicant: { firstName: v('ofAF'), lastName: v('ofAL'), gender: v('ofG') || undefined, dateOfBirth: v('ofDob') || undefined },
+                parent: { firstName: v('ofPF'), lastName: v('ofPL'), phone: v('ofPh'), email: v('ofPe') || undefined },
+                classAppliedId: v('ofCls') || undefined
+            };
+            if (!body.applicant.firstName || !body.applicant.lastName) { showToast('Enter child name', 'error'); return; }
+            if (!body.parent.firstName || !body.parent.lastName || !body.parent.phone) { showToast('Enter parent name and phone', 'error'); return; }
+            setButtonLoading(btn, 'Saving...');
+            try {
+                const resp = await Api.post('/admissions', body);
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                showToast('Applicant added', 'success');
+                closeModal(); renderPage('admissions');
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
+        };
+
+        // ---------- Form & settings ----------
+        function admRenderForm() {
+            const body = document.getElementById('admBody');
+            const s = window._adm.site;
+            if (!s) { body.innerHTML = '<div class="panel text-danger">Could not load the website settings.</div>'; return; }
+            const a = s.admissions || {};
+            const can = admCanEnrol();
+            const dis = can ? '' : 'disabled';
+            window._adm.fields = JSON.parse(JSON.stringify(a.fields || []));
+            const picked = (a.classIds || []).map(String);
+            const classes = window._adm.classes || [];
+            body.innerHTML = `
+            <div class="panel mb-3">
+                <h6>When and who</h6>
+                <div class="mb-3"><label class="field-label">Closing date (optional)</label><input class="input-x" id="admClose" type="date" value="${a.closingDate ? String(a.closingDate).slice(0, 10) : ''}" ${dis} /></div>
+                <label class="field-label">Classes accepting applicants</label>
+                <div class="eyebrow mb-2">Leave all unticked to accept every class.</div>
+                <div class="d-flex flex-wrap gap-3 mb-2">
+                    ${classes.map(c => `<label class="form-check-label"><input type="checkbox" class="form-check-input admClsChk" value="${escapeHtml(pickId(c))}" ${picked.includes(String(pickId(c))) ? 'checked' : ''} ${dis} /> ${escapeHtml(c.name)}</label>`).join('') || '<span class="eyebrow">No classes yet.</span>'}
+                </div>
+            </div>
+            <div class="panel mb-3">
+                <h6>Messages</h6>
+                <div class="mb-3"><label class="field-label">Text above the form</label><textarea class="input-x" id="admIntro" rows="3" ${dis}>${escapeHtml(a.intro || '')}</textarea></div>
+                <div class="mb-1"><label class="field-label">Message after submitting</label><textarea class="input-x" id="admSuccess" rows="2" ${dis}>${escapeHtml(a.successMessage || '')}</textarea></div>
+            </div>
+            <div class="panel mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <h6 class="mb-0">Admission form questions</h6>
+                    ${can ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="admFieldAdd()"><i class="bi bi-plus-lg"></i> Add question</button>` : ''}
+                </div>
+                <div class="eyebrow mb-2">Child's name, parent's name and phone are always required. Everything else can be hidden or made optional.</div>
+                <div id="admFields"></div>
+            </div>
+            ${can ? `<button class="btn-x btn-primary-x btn-block-x" onclick="admSaveForm(this)"><i class="bi bi-check-lg"></i> Save form and settings</button>` : '<div class="eyebrow">Only the owner or an admin can change these settings.</div>'}`;
+            admRenderFields();
+        }
+
+        function admRenderFields() {
+            const can = admCanEnrol();
+            const el = document.getElementById('admFields');
+            if (!el) return;
+            el.innerHTML = (window._adm.fields || []).map((f, i) => {
+                const mand = ADM_MANDATORY.includes(f.key);
+                const typeSel = ['text', 'textarea', 'select', 'date', 'phone', 'email', 'number'];
+                return `
+                <div class="panel mb-2" style="padding:.75rem;">
+                    <div class="d-flex gap-2 align-items-center flex-wrap">
+                        <input class="input-x" style="flex:1;min-width:160px;" value="${escapeHtml(f.label || '')}" placeholder="Question" onchange="admFieldSet(${i},'label',this.value)" ${can ? '' : 'disabled'} />
+                        ${f.builtIn
+                            ? `<span class="chip">${escapeHtml(f.type)}</span>`
+                            : `<select class="input-x" style="max-width:120px;" onchange="admFieldSet(${i},'type',this.value);admRenderFields()" ${can ? '' : 'disabled'}>${typeSel.map(t => `<option ${t === f.type ? 'selected' : ''}>${t}</option>`).join('')}</select>`}
+                    </div>
+                    ${!f.builtIn && f.type === 'select' ? `<input class="input-x mt-2" placeholder="Options, separated by commas (at least 2)" value="${escapeHtml((f.options || []).join(', '))}" onchange="admFieldSet(${i},'options',this.value.split(',').map(function(s){return s.trim();}).filter(Boolean))" ${can ? '' : 'disabled'} />` : ''}
+                    <div class="d-flex gap-3 mt-2 align-items-center flex-wrap">
+                        <label class="form-check-label"><input type="checkbox" class="form-check-input" ${f.enabled !== false ? 'checked' : ''} ${mand || !can ? 'disabled' : ''} onchange="admFieldSet(${i},'enabled',this.checked)" /> Show</label>
+                        <label class="form-check-label"><input type="checkbox" class="form-check-input" ${f.required || mand ? 'checked' : ''} ${mand || !can ? 'disabled' : ''} onchange="admFieldSet(${i},'required',this.checked)" /> Required</label>
+                        ${!f.builtIn && can ? `<button class="btn-x btn-danger-x btn-sm-x ms-auto" onclick="admFieldRemove(${i})"><i class="bi bi-trash"></i></button>` : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        window.admFieldSet = function(i, prop, val) { if (window._adm.fields[i]) window._adm.fields[i][prop] = val; };
+        window.admFieldRemove = function(i) { window._adm.fields.splice(i, 1); admRenderFields(); };
+        window.admFieldAdd = function() {
+            window._adm.fields.push({ key: '', label: '', type: 'text', section: 'custom', required: false, enabled: true, builtIn: false });
+            admRenderFields();
+        };
+
+        window.admSaveForm = async function(btn) {
+            const fields = window._adm.fields.map(f => f.builtIn
+                ? { key: f.key, label: f.label, required: !!f.required, enabled: f.enabled !== false, placeholder: f.placeholder, options: f.options }
+                : { key: f.key || '', label: (f.label || '').trim(), type: f.type, required: !!f.required, enabled: f.enabled !== false, options: f.options });
+            const bad = fields.find(f => !f.builtIn && !f.key && !f.label) || fields.find(f => f.label === '');
+            if (bad) { showToast('Every question needs a label', 'error'); return; }
+            const classIds = Array.prototype.map.call(document.querySelectorAll('.admClsChk:checked'), el => el.value);
+            setButtonLoading(btn, 'Saving...');
+            try {
+                const resp = await Api.put('/site', {
+                    admissions: {
+                        closingDate: document.getElementById('admClose').value || '',
+                        intro: document.getElementById('admIntro').value,
+                        successMessage: document.getElementById('admSuccess').value,
+                        classIds,
+                        fields
+                    }
+                });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                window._adm.site = await Api.json(resp);
+                admRenderBanner();
+                admRenderForm();
+                showToast('Admission form saved', 'success');
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
+        };
+
+        // =============================================================
+        // WEBSITE
+        // =============================================================
+        PAGE_RENDERERS.website = function() {
+            return `
+            <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+                <div><h5 style="font-weight:700;">School website</h5><span class="eyebrow">Public page and online admission form</span></div>
+                <button class="btn-x btn-outline-x btn-sm-x ms-auto" onclick="renderPage('website')"><i class="bi bi-arrow-repeat"></i> Refresh</button>
+            </div>
+            <div id="siteBox"><div class="text-center py-4">Loading...</div></div>`;
+        };
+
+        POST_RENDER_HOOKS.website = async function() {
+            const box = document.getElementById('siteBox');
+            try {
+                const resp = await Api.get('/site');
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                const s = await Api.json(resp);
+                const canEdit = ['SUPER_ADMIN','SCHOOL_OWNER','ADMIN'].includes(Api.getRole());
+                const dis = canEdit ? '' : 'disabled';
+                const fonts = (s.fontChoices || ['Inter', 'Lexend', 'Georgia', 'system-ui']).map(f => `<option ${f === s.theme?.fontFamily ? 'selected' : ''}>${escapeHtml(f)}</option>`).join('');
+                const closing = s.admissions?.closingDate ? String(s.admissions.closingDate).slice(0, 10) : '';
+                box.innerHTML = `
+                <div class="site-preview-hero">
+                    <div class="eyebrow" style="color:rgba(255,255,255,.7);">Public page</div>
+                    <h4 style="color:#fff;margin-top:.2rem;">${escapeHtml(_pageData.school?.name || s.name || 'Your school')}</h4>
+                    <div style="color:rgba(255,255,255,.85);font-size:.85rem;">${escapeHtml(s.tagline || 'Welcome to our school')}</div>
+                </div>
+                <div class="panel mb-3">
+                    <div class="d-flex justify-content-between flex-wrap gap-2 align-items-center">
+                        <div>
+                            <span class="chip ${s.published ? 'chip-green' : 'chip-slate'}">${s.published ? 'Published' : 'Not published'}</span>
+                            <div class="eyebrow mt-2">${s.publicUrl ? `<a href="${escapeHtml(s.publicUrl)}" target="_blank" rel="noopener">${escapeHtml(s.publicUrl)}</a>` : 'No public link yet'}</div>
+                        </div>
+                        ${canEdit ? `<button class="btn-x ${s.published ? 'btn-outline-x' : 'btn-primary-x'} btn-sm-x" onclick="toggleSitePublish(${s.published ? 'false' : 'true'})">${s.published ? 'Unpublish' : 'Publish site'}</button>` : ''}
+                    </div>
+                </div>
+                <div class="panel mb-3">
+                    <h6>Web address</h6>
+                    <div class="d-flex gap-2"><input class="input-x" id="siteSlug" value="${escapeHtml(s.slug || '')}" ${dis} />
+                    ${canEdit ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="saveSiteSlug(this)">Save</button>` : ''}</div>
+                    <p class="eyebrow mt-2">Letters, numbers and dashes only. Used as <code>/s/your-slug</code>.</p>
+                </div>
+                <div class="panel mb-3">
+                    <h6>Look</h6>
+                    <div class="row g-3">
+                        <div class="col-6"><label class="field-label">Main colour</label><input class="input-x" id="siteC1" type="color" value="${escapeHtml(s.theme?.primaryColor || '#0B4F3F')}" ${dis} /></div>
+                        <div class="col-6"><label class="field-label">Accent colour</label><input class="input-x" id="siteC2" type="color" value="${escapeHtml(s.theme?.secondaryColor || '#D98E00')}" ${dis} /></div>
+                        <div class="col-12"><label class="field-label">Font</label><select class="input-x" id="siteFont" ${dis}>${fonts}</select></div>
+                    </div>
+                </div>
+                <div class="panel mb-3">
+                    <h6>Online admissions</h6>
+                    <div class="form-check mb-2"><input class="form-check-input" type="checkbox" id="siteAdmOpen" ${s.admissions?.open ? 'checked' : ''} ${dis} /><label class="form-check-label" for="siteAdmOpen">Accept applications online</label></div>
+                    <div class="mb-2"><label class="field-label">Closing date</label><input class="input-x" id="siteAdmClose" type="date" value="${closing}" ${dis} /></div>
+                    <div class="mb-2"><label class="field-label">Message above the form</label><textarea class="input-x" id="siteAdmIntro" rows="3" ${dis}>${escapeHtml(s.admissions?.intro || '')}</textarea></div>
+                    <p class="eyebrow"><i class="bi bi-info-circle me-1"></i>The admission form is only visible to the public when your site is published and admissions are open. Full form design is on the <a onclick="navigateTo('admissions')" style="cursor:pointer;text-decoration:underline;font-weight:600;">Admissions</a> page.</p>
+                </div>
+                ${canEdit ? `<button class="btn-x btn-primary-x btn-block-x" onclick="saveSite(this)"><i class="bi bi-check-lg"></i> Save changes</button>` : ''}`;
+            } catch (e) {
+                box.innerHTML = `<div class="panel text-danger">${escapeHtml(e.message)}</div>`;
+            }
+        };
+
+        window.saveSite = async function(btn) {
+            setButtonLoading(btn, 'Saving...');
+            try {
+                const resp = await Api.put('/site', {
+                    theme: {
+                        primaryColor: document.getElementById('siteC1').value,
+                        secondaryColor: document.getElementById('siteC2').value,
+                        fontFamily: document.getElementById('siteFont').value
+                    },
+                    admissions: {
+                        open: document.getElementById('siteAdmOpen').checked,
+                        closingDate: document.getElementById('siteAdmClose').value || '',
+                        intro: document.getElementById('siteAdmIntro').value
+                    }
+                });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                showToast('Website saved', 'success');
+            } catch (e) { showToast(e.message, 'error'); }
+            resetButton(btn);
+        };
+
+        window.toggleSitePublish = async function(publish) {
+            try {
+                const resp = await Api.post('/site/' + (publish ? 'publish' : 'unpublish'), {});
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                showToast(publish ? 'Site is live' : 'Site hidden', 'success');
+                renderPage('website');
+            } catch (e) { showToast(e.message, 'error'); }
+        };
+
+        window.saveSiteSlug = async function(btn) {
+            setButtonLoading(btn, 'Saving...');
+            try {
+                const resp = await Api.put('/site/slug', { slug: document.getElementById('siteSlug').value });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                showToast('Address updated', 'success');
+                renderPage('website');
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
+        };
+
+        // =============================================================
+        // HOSTEL (reads from /hostel/* — backend may or may not be present)
+        // =============================================================
+        PAGE_RENDERERS.hostel = function() {
+            const canManage = Api.can('manageHostel');
+            return `
+            <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                <div><h5 style="font-weight:700;">Hostel</h5><span class="eyebrow">Boarding houses, rooms and roll call</span></div>
+                ${canManage ? `<button class="btn-x btn-primary-x btn-sm-x" onclick="openAddHostelModal()"><i class="bi bi-plus-lg"></i> Add hostel</button>` : ''}
+            </div>
+            <div class="row g-3" id="hostelGrid">
+                ${Array(3).fill(0).map(() => `<div class="col-12 col-md-6 col-lg-4"><div class="panel"><div class="skeleton" style="height:20px;width:60%;margin-bottom:.5rem;"></div><div class="skeleton" style="height:12px;width:40%;"></div></div></div>`).join('')}
+            </div>`;
+        };
+
+        POST_RENDER_HOOKS.hostel = async function() {
+            const grid = document.getElementById('hostelGrid');
+            try {
+                const resp = await Api.get('/hostel/hostels');
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                const hostels = toArray(await Api.json(resp));
+                if (hostels.length === 0) {
+                    grid.innerHTML = `<div class="col-12">${emptyState('house-door','No hostels yet','Create a hostel and start adding rooms and beds.', Api.can('manageHostel') ? `<button class="btn-x btn-primary-x" onclick="openAddHostelModal()"><i class="bi bi-plus-lg"></i> Add hostel</button>` : '')}</div>`;
+                    return;
+                }
+                grid.innerHTML = hostels.map(h => `
+                    <div class="col-12 col-md-6 col-lg-4"><div class="stat tone-green h-100">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <div><h6 class="mb-0">${escapeHtml(h.name)}</h6><span class="eyebrow">${escapeHtml(h.gender)}</span></div>
+                            <span class="chip ${h.isActive !== false ? 'chip-green' : 'chip-slate'}">${h.isActive !== false ? 'Active' : 'Inactive'}</span>
+                        </div>
+                        <div class="row g-2 mt-1">
+                            <div class="col-4"><div class="label-caps">Rooms</div><div class="num" style="font-weight:700;">${h.rooms||0}</div></div>
+                            <div class="col-4"><div class="label-caps">Beds</div><div class="num" style="font-weight:700;">${h.capacity||0}</div></div>
+                            <div class="col-4"><div class="label-caps">Occupied</div><div class="num" style="font-weight:700;">${h.occupied||0}</div></div>
+                        </div>
+                        ${h.feePerTerm ? `<div class="eyebrow mt-2">Fee: ${money(h.feePerTerm)}/term</div>` : ''}
+                        <div class="d-flex gap-2 mt-3 flex-wrap">
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="openHostelDetail('${escJs(pickId(h))}')"><i class="bi bi-eye"></i> Open</button>
+                            <button class="btn-x btn-outline-x btn-sm-x" onclick="openHostelRollCall('${escJs(pickId(h))}')"><i class="bi bi-check2-square"></i> Roll call</button>
+                            ${Api.can('manageHostel') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="openAddRoomModal('${escJs(pickId(h))}')"><i class="bi bi-plus-lg"></i> Room</button>` : ''}
+                        </div>
+                    </div></div>
+                `).join('');
+            } catch (e) {
+                grid.innerHTML = `<div class="col-12">${emptyState('house-door','Hostel module not available','The backend does not yet expose /hostel endpoints. Ask your platform admin to enable it.')}</div>`;
+            }
+        };
+
+        window.openAddHostelModal = function() {
+            if (!Api.can('manageHostel')) { showToast('You do not have permission to add hostels.', 'error'); return; }
+            openModal('Add hostel', `
+                <div class="mb-3"><label class="field-label">Hostel name</label><input class="input-x" id="hstName" placeholder="e.g. Blue House" /></div>
+                <div class="mb-3"><label class="field-label">Gender</label><select class="input-x" id="hstGender"><option value="BOYS">Boys</option><option value="GIRLS">Girls</option><option value="MIXED">Mixed</option></select></div>
+                <div class="mb-3"><label class="field-label">Fee per term (₦)</label><input class="input-x" id="hstFee" type="number" placeholder="e.g. 45000" /></div>
+                <div class="mb-1"><label class="field-label">Description (optional)</label><input class="input-x" id="hstDesc" placeholder="e.g. Junior boys wing" /></div>
+                <div class="d-flex gap-2 mt-4"><button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button><button class="btn-x btn-primary-x btn-block-x" onclick="saveNewHostel(this)"><i class="bi bi-check-lg"></i> Save hostel</button></div>
+            `);
+        };
+
+        window.saveNewHostel = async function(btn) {
+            const name = document.getElementById('hstName').value.trim();
+            if (!name) { showToast('Enter a hostel name', 'error'); return; }
+            setButtonLoading(btn, 'Saving...');
+            try {
+                const resp = await Api.post('/hostel/hostels', {
+                    name,
+                    gender: document.getElementById('hstGender').value,
+                    feePerTerm: Number(document.getElementById('hstFee').value) || 0,
+                    description: document.getElementById('hstDesc').value.trim()
+                });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                closeModal(); showToast('Hostel created', 'success'); renderPage('hostel');
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
+        };
+
+        window.openAddRoomModal = function(hostelId) {
+            openModal('Add room', `
+                <div class="mb-3"><label class="field-label">Room number</label><input class="input-x" id="rmNo" placeholder="e.g. A1" /></div>
+                <div class="row g-3">
+                    <div class="col-6"><label class="field-label">Floor</label><input class="input-x" id="rmFloor" type="number" placeholder="1" /></div>
+                    <div class="col-6"><label class="field-label">Capacity</label><input class="input-x" id="rmCap" type="number" placeholder="4" /></div>
+                </div>
+                <div class="d-flex gap-2 mt-4"><button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button><button class="btn-x btn-primary-x btn-block-x" onclick="saveNewRoom('${escJs(hostelId)}', this)"><i class="bi bi-check-lg"></i> Save room</button></div>
+            `);
+        };
+
+        window.saveNewRoom = async function(hostelId, btn) {
+            const roomNumber = document.getElementById('rmNo').value.trim();
+            const capacity = Number(document.getElementById('rmCap').value);
+            if (!roomNumber) { showToast('Enter a room number', 'error'); return; }
+            if (!capacity || capacity < 1) { showToast('Enter a capacity', 'error'); return; }
+            setButtonLoading(btn, 'Saving...');
+            try {
+                const resp = await Api.post('/hostel/hostels/' + hostelId + '/rooms', {
+                    roomNumber,
+                    floor: Number(document.getElementById('rmFloor').value) || undefined,
+                    capacity
+                });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                closeModal(); showToast('Room added', 'success'); renderPage('hostel');
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
+        };
+
+        window.openHostelDetail = async function(hostelId) {
+            openModal('Hostel', `<div class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</div>`, { wide: true });
+            try {
+                const [hResp, rResp, aResp] = await Promise.all([
+                    Api.get('/hostel/hostels'),
+                    Api.get('/hostel/hostels/' + hostelId + '/rooms'),
+                    Api.get('/hostel/allocations?hostelId=' + hostelId)
+                ]);
+                const hostels = hResp.ok ? toArray(await Api.json(hResp)) : [];
+                const hostel = hostels.find(h => pickId(h) === hostelId) || {};
+                const rooms = rResp.ok ? toArray(await Api.json(rResp)) : [];
+                const allocs = aResp.ok ? toArray(await Api.json(aResp)) : [];
+                document.getElementById('modalTitle').textContent = hostel.name || 'Hostel';
+                document.getElementById('modalBody').innerHTML = `
+                    <div class="row g-3 mb-3">
+                        <div class="col-4"><div class="stat tone-green text-center" style="padding:.6rem;"><div class="label-caps">Rooms</div><div class="figure-md num">${rooms.length}</div></div></div>
+                        <div class="col-4"><div class="stat tone-slate text-center" style="padding:.6rem;"><div class="label-caps">Beds</div><div class="figure-md num">${rooms.reduce((s,r)=>s+r.capacity,0)}</div></div></div>
+                        <div class="col-4"><div class="stat tone-gold text-center" style="padding:.6rem;"><div class="label-caps">Occupied</div><div class="figure-md num">${allocs.length}</div></div></div>
+                    </div>
+                    <div class="d-flex gap-2 flex-wrap mb-3">
+                        ${Api.can('manageHostel') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="openAddRoomModal('${escJs(hostelId)}')"><i class="bi bi-plus-lg"></i> Add room</button>` : ''}
+                        ${Api.can('manageHostel') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="openAllocateBedModal('${escJs(hostelId)}')"><i class="bi bi-person-plus"></i> Allocate bed</button>` : ''}
+                        <button class="btn-x btn-outline-x btn-sm-x" onclick="openHostelRollCall('${escJs(hostelId)}')"><i class="bi bi-check2-square"></i> Roll call</button>
+                    </div>
+                    <h6>Rooms</h6>
+                    <div class="table-wrap"><table class="tbl"><thead><tr><th>Room</th><th>Floor</th><th>Capacity</th><th>Occupied</th></tr></thead>
+                        <tbody>${rooms.map(r=>`<tr><td data-label="Room">${escapeHtml(r.roomNumber)}</td><td data-label="Floor">${r.floor ?? '—'}</td><td data-label="Capacity" class="num">${r.capacity}</td><td data-label="Occupied" class="num">${r.occupied}</td></tr>`).join('') || '<tr><td colspan="4" class="text-center py-3 eyebrow">No rooms yet.</td></tr>'}</tbody></table></div>
+                    <h6 class="mt-3">Residents</h6>
+                    <div class="table-wrap"><table class="tbl"><thead><tr><th>Student</th><th>Room</th><th>Bed</th><th></th></tr></thead>
+                        <tbody>${allocs.map(a=>`<tr>
+                            <td data-label="Student">${escapeHtml(a.studentName)}</td>
+                            <td data-label="Room">${escapeHtml(a.roomNumber)}</td>
+                            <td data-label="Bed">${a.bedNumber ?? '—'}</td>
+                            <td>${Api.can('manageHostel') ? `<button class="btn-x btn-outline-x btn-sm-x" onclick="checkoutBed('${escJs(a.id)}','${escJs(hostelId)}')">Check out</button>` : ''}</td>
+                        </tr>`).join('') || '<tr><td colspan="4" class="text-center py-3 eyebrow">No residents yet.</td></tr>'}</tbody></table></div>
+                `;
+            } catch (e) { showToast(e.message, 'error'); closeModal(); }
+        };
+
+        window.openAllocateBedModal = async function(hostelId) {
+            let students = [];
+            let rooms = [];
+            try {
+                const [sResp, rResp] = await Promise.all([
+                    Api.get('/students'),
+                    Api.get('/hostel/hostels/' + hostelId + '/rooms'),
+                ]);
+                if (sResp.ok) students = toArray(await Api.json(sResp));
+                if (rResp.ok) rooms = toArray(await Api.json(rResp));
+            } catch (_) {}
+            openModal('Allocate bed', `
+                <div class="mb-3"><label class="field-label">Student</label><select class="input-x" id="alStudent">${students.map(s => `<option value="${escJs(pickId(s))}">${escapeHtml(displayName(s))} — ${escapeHtml(s.className||'')}</option>`).join('')}</select></div>
+                <div class="mb-3"><label class="field-label">Room</label><select class="input-x" id="alRoom">${rooms.filter(r => r.occupied < r.capacity).map(r => `<option value="${escJs(pickId(r))}">${escapeHtml(r.roomNumber)} — ${r.occupied}/${r.capacity}</option>`).join('')}</select></div>
+                <div class="mb-3"><label class="field-label">Bed number (optional)</label><input class="input-x" id="alBed" type="number" placeholder="Auto" /></div>
+                <div class="d-flex gap-2 mt-4"><button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button><button class="btn-x btn-primary-x btn-block-x" onclick="submitAllocateBed(this)"><i class="bi bi-check-lg"></i> Allocate</button></div>
+            `);
+        };
+
+        window.submitAllocateBed = async function(btn) {
+            const studentId = document.getElementById('alStudent').value;
+            const roomId = document.getElementById('alRoom').value;
+            if (!studentId || !roomId) { showToast('Pick a student and room', 'error'); return; }
+            setButtonLoading(btn, 'Allocating...');
+            try {
+                const resp = await Api.post('/hostel/allocations', {
+                    studentId, roomId,
+                    bedNumber: Number(document.getElementById('alBed').value) || undefined
+                });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                closeModal(); showToast('Bed allocated', 'success'); renderPage('hostel');
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
+        };
+
+        window.checkoutBed = async function(allocationId, hostelId) {
+            if (!confirm('Check this student out of the hostel?')) return;
+            try {
+                const resp = await Api.post('/hostel/allocations/' + allocationId + '/checkout', {});
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                showToast('Checked out', 'success');
+                openHostelDetail(hostelId);
+            } catch (e) { showToast(e.message, 'error'); }
+        };
+
+        window.openHostelRollCall = async function(hostelId) {
+            const today = new Date().toISOString().slice(0, 10);
+            openModal('Roll call', `<div class="text-center py-4"><i class="bi bi-arrow-repeat me-2"></i>Loading...</div>`);
+            try {
+                const resp = await Api.get('/hostel/hostels/' + hostelId + '/rollcall?date=' + today + '&type=NIGHT');
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                const data = await Api.json(resp);
+                const rows = data.rows || [];
+                document.getElementById('modalBody').innerHTML = `
+                    <div class="eyebrow mb-2">Date ${fmtDate(data.date || today)} · ${escapeHtml(data.type || 'NIGHT')} roll call</div>
+                    ${rows.map(r => `
+                        <div class="d-flex justify-content-between align-items-center p-2 mb-1" style="background:var(--line-soft);border-radius:var(--radius-sm);" data-roll-student="${escJs(r.studentId)}">
+                            <span style="font-size:.85rem;">${escapeHtml(r.name)} <span class="eyebrow">R${escapeHtml(r.roomNumber||'—')}</span></span>
+                            <select class="input-x" style="width:auto;padding:.25rem .5rem;font-size:.75rem;">
+                                <option value="PRESENT" ${r.status==='PRESENT'?'selected':''}>Present</option>
+                                <option value="ABSENT" ${r.status==='ABSENT'?'selected':''}>Absent</option>
+                                <option value="ON_LEAVE" ${r.status==='ON_LEAVE'?'selected':''}>On leave</option>
+                                <option value="SICK" ${r.status==='SICK'?'selected':''}>Sick</option>
+                            </select>
+                        </div>
+                    `).join('') || '<div class="eyebrow">No residents in this hostel.</div>'}
+                    <div class="d-flex gap-2 mt-3">
+                        <button class="btn-x btn-outline-x" onclick="closeModal()">Cancel</button>
+                        <button class="btn-x btn-primary-x btn-block-x" onclick="saveHostelRollCall('${escJs(hostelId)}','${escJs(today)}','NIGHT', this)">Save roll call</button>
+                    </div>
+                `;
+            } catch (e) { showToast(e.message, 'error'); closeModal(); }
+        };
+
+        window.saveHostelRollCall = async function(hostelId, date, type, btn) {
+            const records = [...document.querySelectorAll('[data-roll-student]')].map(el => ({
+                studentId: el.dataset.rollStudent,
+                status: el.querySelector('select').value
+            }));
+            if (!records.length) { showToast('No residents', 'error'); return; }
+            setButtonLoading(btn, 'Saving...');
+            try {
+                const resp = await Api.put('/hostel/hostels/' + hostelId + '/rollcall', { date, type, records });
+                if (!resp.ok) throw new Error(await parseErrorResponse(resp));
+                closeModal(); showToast('Roll call saved', 'success');
+            } catch (e) { showToast(e.message, 'error'); resetButton(btn); }
+        };
+
         // --- SYSTEM HEALTH ---
         PAGE_RENDERERS.health = function() {
             return `
@@ -9113,7 +10488,7 @@
             }
         };
 
-        // --- PLATFORM RENEWALS (moved to /platform/renewals/*) ---
+        // --- PLATFORM RENEWALS (via /platform/renewals) ---
         PAGE_RENDERERS.platformRenewals = function() {
             return `
             <div class="d-flex align-items-center gap-2 mb-3"><h5 style="font-weight:700;">Pending Subscription Renewals</h5><span class="chip chip-gold"><i class="bi bi-shield-lock"></i> Super Admin</span></div>
@@ -9192,6 +10567,14 @@
                 renewalsBtn.dataset.bound = '1';
                 renewalsBtn.addEventListener('click', () => {
                     CURRENT_PAGE = 'platformRenewals';
+                    renderPlatformPage();
+                });
+            }
+            const schoolsBtn = document.getElementById('paSchoolsBtn');
+            if (schoolsBtn && !schoolsBtn.dataset.bound) {
+                schoolsBtn.dataset.bound = '1';
+                schoolsBtn.addEventListener('click', () => {
+                    CURRENT_PAGE = 'platformSchools';
                     renderPlatformPage();
                 });
             }
@@ -9693,11 +11076,11 @@
         window.enterAppFromLanding = enterAppFromLanding;
         window.toggleTheme = toggleTheme;
         window.openAccountMenu = openAccountMenu;
-        window.openChangePasswordModal = openChangePasswordModal;
-        window.submitChangePassword = submitChangePassword;
+        window.openChangePassword = openChangePassword;
+        window.saveNewPassword = saveNewPassword;
         window.toggleFab = toggleFab;
         window.openNotifications = openNotifications;
-        window.markNotificationRead = markNotificationRead;
+        window.markNotifRead = markNotifRead;
         window.exportCSV = exportCSV;
         window.generateReportCard = generateReportCard;
         window.togglePlatformSchool = togglePlatformSchool;
@@ -9757,10 +11140,17 @@
         window.submitPromotion = submitPromotion;
         window.openEditStudentModal = openEditStudentModal;
         window.saveEditStudent = saveEditStudent;
+        window.openStudentPhotoUpload = openStudentPhotoUpload;
+        window.previewStudentPhoto = previewStudentPhoto;
+        window.saveStudentPhoto = saveStudentPhoto;
         window.exportStudentsCsv = exportStudentsCsv;
         window.exportPaymentsCsv = exportPaymentsCsv;
         window.exportInvoicesCsv = exportInvoicesCsv;
         window.viewParent = viewParent;
+        window.openEditParentModal = openEditParentModal;
+        window.saveEditParent = saveEditParent;
+        window.confirmDeleteParent = confirmDeleteParent;
+        window.deleteParent = deleteParent;
         window.sendParentSMS = sendParentSMS;
         window.doSendParentSMS = doSendParentSMS;
         window.openAddStaffModal = openAddStaffModal;
@@ -9770,9 +11160,11 @@
         window.deleteStaff = deleteStaff;
         window.openStaffLoginModal = openStaffLoginModal;
         window.submitStaffLogin = submitStaffLogin;
+        window.openStaffTeachingModal = openStaffTeachingModal;
+        window.saveStaffTeaching = saveStaffTeaching;
         window.generateSchoolWideReportCards = generateSchoolWideReportCards;
-        window.openPublishResultsModal = openPublishResultsModal;
-        window.submitPublishResults = submitPublishResults;
+        window.openPublishModal = openPublishModal;
+        window.runPublish = runPublish;
         window.toggleResultPublish = toggleResultPublish;
         window.openPlatformSchoolDetail = openPlatformSchoolDetail;
         window.changeSchoolPlan = changeSchoolPlan;
@@ -9808,6 +11200,8 @@
         window.saveAcademicSession = saveAcademicSession;
         window.updateOnlineStatus = updateOnlineStatus;
         window.sendBulkReminder = sendBulkReminder;
+        window.deleteInvoice = deleteInvoice;
+        window.confirmDeleteInvoice = confirmDeleteInvoice;
         // Credentials
         window.openCreateCredentialModal = openCreateCredentialModal;
         window.toggleCredScopeFields = toggleCredScopeFields;
@@ -9821,24 +11215,71 @@
         // Approval delegation
         window.openDelegateApprovalModal = openDelegateApprovalModal;
         window.submitDelegateApproval = submitDelegateApproval;
+        // Website
+        window.saveSite = saveSite;
+        window.toggleSitePublish = toggleSitePublish;
+        window.saveSiteSlug = saveSiteSlug;
+        // Admissions
+        window.admToggleOpen = admToggleOpen;
+        window.admTab = admTab;
+        window.admSearchDebounced = admSearchDebounced;
+        window.admLoad = admLoad;
+        window.admOpen = admOpen;
+        window.admAddNote = admAddNote;
+        window.admSetStatus = admSetStatus;
+        window.admWaitlist = admWaitlist;
+        window.admReject = admReject;
+        window.admInterview = admInterview;
+        window.admSaveInterview = admSaveInterview;
+        window.admApproveModal = admApproveModal;
+        window.admRunApprove = admRunApprove;
+        window.openOfficeApplication = openOfficeApplication;
+        window.saveOfficeApplication = saveOfficeApplication;
+        window.admFieldSet = admFieldSet;
+        window.admFieldRemove = admFieldRemove;
+        window.admFieldAdd = admFieldAdd;
+        window.admSaveForm = admSaveForm;
+        // Assignments
+        window.loadKidAssignments = loadKidAssignments;
+        window.openSubmitAssignment = openSubmitAssignment;
+        window.sendSubmission = sendSubmission;
+        window.openAddAssignmentModal = openAddAssignmentModal;
+        window.saveAssignment = saveAssignment;
+        window.assignAction = assignAction;
+        window.deleteAssignment = deleteAssignment;
+        window.openSubmissions = openSubmissions;
+        window.gradeSubmission = gradeSubmission;
+        // Hostel
+        window.openAddHostelModal = openAddHostelModal;
+        window.saveNewHostel = saveNewHostel;
+        window.openAddRoomModal = openAddRoomModal;
+        window.saveNewRoom = saveNewRoom;
+        window.openHostelDetail = openHostelDetail;
+        window.openAllocateBedModal = openAllocateBedModal;
+        window.submitAllocateBed = submitAllocateBed;
+        window.checkoutBed = checkoutBed;
+        window.openHostelRollCall = openHostelRollCall;
+        window.saveHostelRollCall = saveHostelRollCall;
 
-        console.log('🏫 SchoolFlow · Production Frontend (v6.0 — Full backend wiring, session-aware permissions, change-password, server-side logout, result publishing, parent portal, queue paths aligned, renewal approval flow)');
-        console.log('✅ v6.0 highlights over v5.0:');
-        console.log('   • Server-side logout + logout-all (refresh tokens are revoked, not just cleared)');
-        console.log('   • Change password screen with confirmation');
-        console.log('   • Effective permissions read from /auth/session-status when available');
-        console.log('   • Forgot-password honours { sent: false } — no more lying to the user');
-        console.log('   • /auth/register-first handles 501 gracefully — routes to onboarding instead of a dead end');
-        console.log('   • Result publishing / unpublishing for proprietors and head teachers');
-        console.log('   • Parent portal uses /portal/children and /portal/* with fallback to /students?view=parent');
-        console.log('   • Queue monitor now hits /platform/queues/* (matches backend mounting)');
-        console.log('   • Renewal approvals now hit /platform/renewals/* (approve/reject actually possible)');
-        console.log('   • Staff → create login one-click flow (POST /staff/:id/login with /users fallback)');
-        console.log('   • Approval delegation UI for bursars (PUT /users/:id/approval-delegation)');
-        console.log('   • Notification click marks read (PUT /notifications/:id/read)');
-        console.log('   • Export CSV for students / payments / invoices');
-        console.log('   • SMS top-up gated to super admins only (removes free-credit hole)');
-        console.log('   • Report card + receipt fall back to HTML if PDF render fails');
+        console.log('🏫 SchoolFlow · Production Frontend (v7.0 — Full feature parity: change password, server-side logout, notifications fix, result publishing, admissions with form builder, website, assignments, timetable, hostel, student photos, parent edit/delete, exports, staff teaching, approval delegation)');
+        console.log('✅ v7.0 highlights over v6.0:');
+        console.log('   • Change password flow (POST /auth/change-password) with oldPassword/newPassword');
+        console.log('   • Server-side logout revokes refresh tokens — no more zombie sessions');
+        console.log('   • Notifications use the correct `body` field and mark-read works');
+        console.log('   • Result publishing + report card publishing (parents see only published)');
+        console.log('   • Full admissions workflow: applications, interview, waitlist, approve/enrol');
+        console.log('   • Admission form builder (show/hide/require/rename fields)');
+        console.log('   • Public website page: publish, slug, theme, admissions open toggle');
+        console.log('   • Assignments module (staff create, students submit, grades)');
+        console.log('   • Timetable page for teachers, students and parents');
+        console.log('   • Hostel module UI (hostels, rooms, allocations, roll call)');
+        console.log('   • Student photo upload (multipart with base64 fallback)');
+        console.log('   • Parent edit/delete plus full parent detail view');
+        console.log('   • Staff teaching assignments UI (form class, classes, subjects)');
+        console.log('   • Bursar approval delegation UI');
+        console.log('   • CSV exports for students, payments, invoices');
+        console.log('   • Student role + HOSTEL_MANAGER, MASTER_MANAGER, WORK_MANAGER roles');
+        console.log('   • Queue monitor and renewals now hit /platform/* paths correctly');
         console.log('🔐 Role:', Api.getRole());
         console.log('📶 Online:', navigator.onLine);
         console.log('🔗 API:', API_BASE);
