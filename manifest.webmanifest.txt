@@ -1,0 +1,22 @@
+{
+  "id": "/?source=pwa",
+  "name": "SchoolFlow — School Operating System",
+  "short_name": "SchoolFlow",
+  "description": "Fees, attendance, results, report cards and parent portal for your school.",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#FDFBF6",
+  "theme_color": "#0B4F3F",
+  "lang": "en-NG",
+  "dir": "ltr",
+  "categories": ["education", "productivity", "business"],
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
