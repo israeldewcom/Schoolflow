@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>How SchoolFlow works | SchoolFlow</title>
+    <meta name="description" content="What SchoolFlow does for a Nigerian private school: fees and receipts, report cards, lesson notes, hostels, attendance and parent portals." />
+    <meta name="theme-color" content="#0B4F3F" />
+    <link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script>
+        try { document.documentElement.setAttribute('data-theme', localStorage.getItem('schoolflow_theme') || 'light'); } catch (_) {}
+    </script>
+    <style>
+:root {
+            --ink: #17241F;
+            --paper: #FDFBF6;
+            --surface: #FFFFFF;
+            --surface-elevated: #FFFFFF;
+            --green: #0B4F3F;
+            --green-deep: #083B2F;
+            --green-light: #E8F2EE;
+            --green-bright: #10A37F;
+            --gold: #D98E00;
+            --gold-light: #FBEED0;
+            --danger: #B3413B;
+            --danger-light: #FBEAE8;
+            --info: #3E6E86;
+            --info-light: #E6F0F5;
+            --slate: #5E6E68;
+            --slate-light: #7A8680;
+            --line: #E6E1D3;
+            --line-soft: #F0EDE2;
+            --radius-lg: 18px;
+            --radius-md: 12px;
+            --radius-sm: 8px;
+
+            --shadow-xs: 0 1px 2px rgba(23, 36, 31, .04);
+            --shadow-1: 0 1px 2px rgba(23, 36, 31, .05), 0 1px 1px rgba(23, 36, 31, .04);
+            --shadow-sm: 0 1px 2px rgba(23, 36, 31, .05), 0 1px 1px rgba(23, 36, 31, .04);
+            --shadow-md: 0 4px 12px rgba(23, 36, 31, .08);
+            --shadow-2: 0 8px 28px rgba(23, 36, 31, .10);
+            --shadow-lg: 0 8px 28px rgba(23, 36, 31, .10);
+            --shadow-3: 0 20px 50px rgba(23, 36, 31, .15);
+            --shadow-xl: 0 20px 50px rgba(23, 36, 31, .15);
+            --shadow-glow-green: 0 1px 3px rgba(11, 79, 63, .2);
+            --shadow-glow-gold: 0 1px 3px rgba(217, 142, 0, .2);
+
+            --gradient-brand: #0B4F3F;
+            --gradient-brand-bright: var(--green);
+            --gradient-gold: var(--gold);
+            --gradient-shine: linear-gradient(90deg, transparent, rgba(255, 255, 255, .15), transparent);
+
+            --font-display: 'Lexend', system-ui, sans-serif;
+            --font-body: 'Inter', system-ui, sans-serif;
+            --nav-width: 248px;
+            --topbar-height: 60px;
+            --transition: 0.25s cubic-bezier(.4, 0, .2, 1);
+        }
+[data-theme="dark"] {
+            --ink: #F2F1EA;
+            --paper: #101915;
+            --surface: #1A2520;
+            --surface-elevated: #223029;
+            --green: #3EA684;
+            --green-deep: #2E7D64;
+            --green-light: #1B2B24;
+            --green-bright: #3DD6A8;
+            --gold: #F0B429;
+            --gold-light: #2B2312;
+            --danger: #E5827C;
+            --danger-light: #2E1B1A;
+            --info: #7FA8BE;
+            --info-light: #1B2A32;
+            --slate: #9AA8A2;
+            --slate-light: #7A8680;
+            --line: #26332C;
+            --line-soft: #1D2A24;
+            --shadow-xs: 0 1px 2px rgba(0, 0, 0, .3);
+            --shadow-1: 0 1px 2px rgba(0, 0, 0, .3);
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3);
+            --shadow-md: 0 4px 12px rgba(0, 0, 0, .4);
+            --shadow-2: 0 8px 28px rgba(0, 0, 0, .45);
+            --shadow-lg: 0 8px 28px rgba(0, 0, 0, .45);
+            --shadow-3: 0 20px 50px rgba(0, 0, 0, .6);
+            --shadow-xl: 0 20px 50px rgba(0, 0, 0, .6);
+        }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+            font-family: var(--font-body);
+            background: var(--paper);
+            color: var(--ink);
+            -webkit-font-smoothing: antialiased;
+            transition: background .3s ease, color .3s ease;
+            overflow-x: hidden;
+            font-variant-numeric: tabular-nums;
+        }
+h1, h2, h3, h4, h5, h6 { font-family: var(--font-display); color: var(--ink); margin: 0; }
+a { color: var(--green); text-decoration: none; }
+@media (prefers-reduced-motion: reduce) {
+*, *::before, *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+            }
+}
+[data-theme="dark"] .sidebar-nav .nav-item.active { color: var(--green); }
+[data-theme="dark"] .panel { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .05), var(--shadow-lg); }
+.btn-x {
+            font-family: var(--font-body); font-weight: 600; font-size: .82rem;
+            border-radius: var(--radius-sm); padding: .5rem 1rem;
+            border: 1px solid transparent; display: inline-flex; align-items: center; gap: .4rem;
+            cursor: pointer;
+            transition: filter .15s ease, background .15s ease, transform .08s ease, box-shadow .2s ease;
+            white-space: nowrap; text-decoration: none;
+        }
+.btn-x:active { transform: translateY(1px); }
+.btn-x:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; }
+.btn-primary-x { background: var(--gradient-brand); color: #fff; }
+.btn-primary-x:hover { color: #fff; filter: brightness(.92); }
+.btn-gold-x { background: var(--gradient-gold); color: #241a00; }
+.btn-gold-x:hover { color: #241a00; filter: brightness(.94); }
+.btn-outline-x { background: transparent; border-color: var(--line); color: var(--ink); }
+.btn-outline-x:hover { background: var(--line-soft); color: var(--ink); }
+.btn-danger-x { background: var(--danger-light); color: var(--danger); }
+.btn-danger-x:hover { filter: brightness(.97); color: var(--danger); }
+.btn-ghost-x { background: transparent; color: var(--slate); border-color: transparent; }
+.btn-ghost-x:hover { background: var(--line-soft); color: var(--ink); }
+.btn-sm-x { padding: .3rem .7rem; font-size: .75rem; }
+.btn-block-x { width: 100%; justify-content: center; }
+.btn-icon-only { padding: .5rem; }
+.btn-loading { opacity: .7; pointer-events: none; cursor: wait; }
+[data-theme="dark"] .chip-credit { background: #16233F; color: #8FB4FF; }
+[data-theme="dark"] .setup-checklist .sc-progress-track { background: rgba(0,0,0,.3); }
+[data-theme="dark"] .setup-checklist .sc-step:hover { background: rgba(0,0,0,.2); }
+#landingPage {
+            font-family: var(--font-body);
+            background: var(--paper); color: var(--ink);
+            -webkit-font-smoothing: antialiased;
+        }
+#landingPage .wrap { max-width: 1120px; margin: 0 auto; padding: 0 1.5rem; }
+#landingPage nav {
+            position: sticky; top: 0; z-index: 100;
+            background: var(--paper); border-bottom: 1px solid var(--line);
+        }
+#landingPage nav .wrap { display: flex; align-items: center; justify-content: space-between; padding: .8rem 1.5rem; }
+#landingPage .logo { display: flex; align-items: center; gap: .5rem; font-family: var(--font-display); font-weight: 700; font-size: 1.1rem; }
+#landingPage .logo-mark {
+            width: 30px; height: 30px; border-radius: 8px;
+            background: var(--gradient-brand);
+            display: flex; align-items: center; justify-content: center; color: #fff;
+        }
+#landingPage .navlinks { display: flex; gap: 1.8rem; font-size: .85rem; font-weight: 500; color: var(--slate); }
+#landingPage .navlinks a:hover { color: var(--ink); }
+@media(max-width:768px) {
+#landingPage .navlinks { display: none; }
+}
+#landingPage .hero { padding: 4rem 0 3rem; }
+#landingPage .hero .wrap { display: grid; grid-template-columns: 1.05fr .95fr; gap: 2.5rem; align-items: center; }
+@media(max-width:900px) {
+#landingPage .hero .wrap { grid-template-columns: 1fr; }
+}
+#landingPage .hero h1 { font-size: 2.4rem; line-height: 1.12; font-weight: 700; letter-spacing: -0.01em; }
+#landingPage .hero .accent { color: var(--green); }
+#landingPage .hero p.lead { font-size: 1.05rem; color: var(--slate); margin-top: 1rem; max-width: 46ch; }
+#landingPage .hero .cta-row { display: flex; gap: .8rem; margin-top: 1.6rem; flex-wrap: wrap; }
+#landingPage .hero .trust { margin-top: 1rem; font-size: .8rem; color: var(--slate-light); }
+#landingPage .compare-card {
+            background: var(--surface); border: 1px solid var(--line);
+            border-radius: 14px; padding: 1.2rem;
+        }
+#landingPage .compare-row { display: flex; gap: .8rem; align-items: stretch; }
+#landingPage .compare-col { flex: 1; border-radius: 10px; padding: .8rem; font-size: .78rem; }
+#landingPage .compare-col.old { background: #F3EFE4; color: #7a7263; border: 1px dashed #c9c0a8; }
+#landingPage .compare-col.new { background: var(--green-light); color: var(--green-deep); }
+#landingPage .compare-col .cc-title {
+            font-weight: 700; font-size: .68rem; text-transform: uppercase;
+            letter-spacing: .04em; margin-bottom: .4rem; opacity: .7;
+        }
+#landingPage .compare-line { display: flex; justify-content: space-between; padding: .2rem 0; border-bottom: 1px solid rgba(0, 0, 0, .06); }
+#landingPage .compare-arrow { display: flex; align-items: center; justify-content: center; font-size: 1.2rem; color: var(--gold); }
+#landingPage .features { padding: 4rem 0; border-top: 1px solid var(--line); }
+#landingPage .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem; margin-top: 2rem; }
+@media(max-width:900px) {
+#landingPage .feature-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media(max-width:600px) {
+#landingPage .feature-grid { grid-template-columns: 1fr; }
+}
+#landingPage .feature-card {
+            background: var(--surface); border: 1px solid var(--line);
+            border-radius: 14px; padding: 1.3rem;
+            transition: transform .2s, box-shadow .2s;
+        }
+#landingPage .feature-card:hover { border-color: var(--green); }
+#landingPage .feature-card .f-icon {
+            width: 38px; height: 38px; border-radius: 10px;
+            background: var(--green-light); color: var(--green);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1rem; margin-bottom: .8rem;
+        }
+#landingPage .feature-card h4 { font-size: .95rem; margin-bottom: .3rem; }
+#landingPage .feature-card p { font-size: .82rem; color: var(--slate); }
+#landingPage .pricing { padding: 4rem 0; background: var(--surface); border-top: 1px solid var(--line); }
+#landingPage .price-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.2rem; margin-top: 2rem; }
+@media(max-width:900px) {
+#landingPage .price-grid { grid-template-columns: 1fr; max-width: 400px; margin: 2rem auto 0; }
+}
+#landingPage .price-card {
+            border: 1.5px solid var(--line); border-radius: 16px;
+            padding: 1.5rem; display: flex; flex-direction: column;
+            background: var(--paper); transition: transform .2s, box-shadow .2s, border-color .2s;
+        }
+#landingPage .price-card:hover { border-color: var(--green); }
+#landingPage .price-card.featured { border-color: var(--green); box-shadow: var(--shadow-3); position: relative; }
+#landingPage .price-card.featured::before {
+            content: 'Most popular'; position: absolute; top: -11px; left: 50%;
+            transform: translateX(-50%); background: var(--gold); color: #241a00;
+            font-size: .62rem; font-weight: 700; padding: .2rem .7rem; border-radius: 20px;
+        }
+#landingPage .price-name { font-weight: 700; font-size: 1rem; }
+#landingPage .price-desc { color: var(--slate); font-size: .8rem; margin-top: .2rem; min-height: 2.4em; }
+#landingPage .price-amount { font-family: var(--font-display); font-weight: 800; font-size: 1.8rem; margin-top: .8rem; }
+#landingPage .price-amount span { font-size: .8rem; font-weight: 500; color: var(--slate); }
+#landingPage .price-list { list-style: none; padding: 0; margin: 1rem 0; flex-grow: 1; }
+#landingPage .price-list li { display: flex; gap: .5rem; font-size: .8rem; padding: .3rem 0; color: var(--ink); }
+#landingPage .price-list li i { color: var(--green); margin-top: .1rem; }
+#landingPage .pc-toggle { display: inline-flex; gap: .25rem; padding: .25rem; border: 1.5px solid var(--line); border-radius: 999px; background: var(--paper); margin-top: 1.4rem; }
+#landingPage .pc-toggle button { border: 0; background: transparent; color: var(--slate); font: inherit; font-size: .82rem; font-weight: 600; padding: .45rem 1rem; border-radius: 999px; cursor: pointer; }
+#landingPage .pc-toggle button.active { background: var(--green); color: #fff; }
+[data-theme="dark"] #landingPage .pc-toggle button.active, [data-theme="dark"] #landingPage .pc-chip.active { color: #07211a; }
+#landingPage .pc-toggle button:focus-visible, #landingPage .pc-chip:focus-visible, #landingPage .pc-link:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+#landingPage .pc-toggle-note { font-size: .78rem; color: var(--slate); margin-top: .6rem; }
+#landingPage .pc-link { background: none; border: 0; padding: 0; margin-top: .6rem; font: inherit; font-size: .78rem; font-weight: 600; color: var(--green); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+#landingPage .pc-addons { margin-top: 1.4rem; padding: 1rem 1.2rem; border: 1.5px dashed var(--line); border-radius: 14px; font-size: .82rem; color: var(--slate); }
+#landingPage .pc-addons strong { color: var(--ink); }
+#landingPage .pc-calc { margin-top: 2.5rem; border: 1.5px solid var(--line); border-radius: 18px; background: var(--paper); padding: 1.6rem; }
+#landingPage .pc-calc h3 { font-size: 1.2rem; font-weight: 700; }
+#landingPage .pc-calc-sub { color: var(--slate); font-size: .85rem; margin-top: .25rem; max-width: 60ch; }
+#landingPage .pc-calc-body { display: grid; grid-template-columns: 1.1fr 1fr; gap: 1.6rem; margin-top: 1.3rem; }
+@media(max-width:900px) {
+#landingPage .pc-calc-body { grid-template-columns: 1fr; }
+}
+#landingPage .pc-field { margin-bottom: 1rem; }
+#landingPage .pc-chips { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .3rem; }
+#landingPage .pc-chip { border: 1.5px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: .8rem; font-weight: 600; padding: .4rem .8rem; border-radius: 10px; cursor: pointer; }
+#landingPage .pc-chip small { display: block; font-weight: 500; font-size: .66rem; color: var(--slate); }
+#landingPage .pc-chip.active { background: var(--green); border-color: var(--green); color: #fff; }
+#landingPage .pc-chip.active small { color: inherit; opacity: .85; }
+#landingPage .pc-note { font-size: .78rem; color: var(--slate); margin-top: .4rem; min-height: 1.1em; }
+#landingPage .pc-note.warn { color: var(--danger, #B3261E); }
+#landingPage .pc-result { background: var(--surface); border: 1.5px solid var(--line); border-radius: 14px; padding: 1.2rem; display: flex; flex-direction: column; }
+#landingPage .pc-row { display: flex; justify-content: space-between; gap: 1rem; font-size: .85rem; padding: .3rem 0; color: var(--slate); }
+#landingPage .pc-row b { color: var(--ink); font-weight: 600; }
+#landingPage .pc-row s { opacity: .7; }
+#landingPage .pc-total { border-top: 1px solid var(--line); margin-top: .5rem; padding-top: .8rem; }
+#landingPage .pc-total-amt { font-family: var(--font-display); font-weight: 800; font-size: 2rem; color: var(--ink); }
+#landingPage .pc-save { color: var(--green); font-weight: 700; font-size: .85rem; margin-top: .15rem; }
+#landingPage .pc-nudge { font-size: .78rem; color: var(--slate); margin-top: .7rem; }
+#landingPage .pc-actions { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1rem; }
+#landingPage .cta-section { padding: 4rem 0; text-align: center; }
+#landingPage .cta-box { background: var(--gradient-brand); border-radius: 22px; padding: 2.5rem 2rem; color: #fff; }
+#landingPage .cta-box h2 { color: #fff; font-size: 1.7rem; }
+#landingPage .cta-box p { color: rgba(255, 255, 255, .85); margin-top: .6rem; max-width: 50ch; margin-left: auto; margin-right: auto; }
+#landingPage .cta-box .cta-row { display: flex; gap: .8rem; justify-content: center; margin-top: 1.4rem; flex-wrap: wrap; }
+#landingPage .cta-box .btn-primary { background: #fff; color: var(--green); }
+#landingPage .cta-box .btn-ghost { border-color: rgba(255, 255, 255, .4); color: #fff; }
+#landingPage footer { border-top: 1px solid var(--line); padding: 2rem 0; font-size: .8rem; color: var(--slate); }
+@media(max-width:575px) {
+#landingPage .hero h1 { font-size: 1.7rem; }
+#landingPage .hero .wrap { gap: 1.5rem; }
+#landingPage .compare-row { flex-direction: column; }
+#landingPage .compare-arrow { transform: rotate(90deg); }
+#landingPage .cta-box { padding: 1.8rem 1.2rem; }
+#landingPage .cta-box h2 { font-size: 1.3rem; }
+}
+@media print {
+.topbar, .bottom-nav, .sidebar, .fab-wrap, .toast-stack, .overlay-x, .btn-x,
+            #topLoader, .setup-checklist, #termCelebration, .sms-banner, .trial-banner,
+            .first-login-banner { display: none !important; }
+body { background: #fff !important; color: #000 !important; }
+}
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+            outline: 2px solid var(--green); outline-offset: 2px;
+        }
+.logo-mark.has-img, .brand-mark-lg.has-img { background: none !important; box-shadow: none !important; width: auto !important; height: auto !important; padding: 0 !important; border-radius: 0 !important; }
+.logo-mark.has-img img { height: 32px; width: auto; max-width: 150px; display: block; }
+#landingPage footer .logo-mark.has-img img { height: 28px; }
+.brand-mark-lg.has-img img { height: 56px; width: auto; max-width: 200px; display: block; margin: 0 auto; }
+#landingPage .logo { color: var(--ink); text-decoration: none; }
+#landingPage nav .wrap { gap: 1rem; }
+#landingPage .navlinks { margin-left: auto; margin-right: 1.5rem; }
+#landingPage .nav-actions { display: flex; align-items: center; gap: .9rem; }
+#landingPage .nav-signin { font-size: .85rem; font-weight: 600; color: var(--slate); }
+#landingPage .nav-signin:hover { color: var(--ink); }
+#landingPage .hero h1 { font-size: clamp(1.9rem, 5.4vw, 2.6rem); }
+#landingPage footer { padding: 2.4rem 0 1.4rem; background: var(--surface); }
+#landingPage .footer-grid { display: grid; grid-template-columns: 1.6fr 1fr 1fr; gap: 2rem; }
+#landingPage .footer-brand p { margin-top: .7rem; max-width: 34ch; line-height: 1.55; }
+#landingPage .footer-col { display: flex; flex-direction: column; gap: .45rem; }
+#landingPage .footer-col h6 { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--slate-light); margin-bottom: .2rem; }
+#landingPage .footer-col a { color: var(--slate); }
+#landingPage .footer-col a:hover { color: var(--ink); }
+#landingPage .footer-base { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem; margin-top: 1.8rem; padding-top: 1.1rem; border-top: 1px solid var(--line); font-size: .78rem; }
+.powered-by { font-size: .75rem; color: var(--slate-light); text-align: center; }
+#landingPage .footer-base .powered-by { text-align: right; }
+.powered-by strong { color: var(--slate); font-weight: 600; }
+#learnPage { display: none; }
+#landingPage.show-learn #learnPage { display: block; }
+#landingPage.show-learn .hero, #landingPage.show-learn .features, #landingPage.show-learn .pricing, #landingPage.show-learn .cta-section { display: none; }
+#learnPage .learn-head { padding: 3rem 0 2.4rem; border-bottom: 1px solid var(--line); }
+#learnPage .learn-back { font-size: .85rem; font-weight: 600; color: var(--slate); display: inline-block; margin-bottom: 1.2rem; }
+#learnPage .learn-back:hover { color: var(--ink); }
+#learnPage h1 { font-size: clamp(1.8rem, 5vw, 2.4rem); font-weight: 700; line-height: 1.15; max-width: 22ch; }
+#learnPage .learn-head p { color: var(--slate); font-size: 1.02rem; margin-top: .9rem; max-width: 56ch; line-height: 1.6; }
+#learnPage .cta-row { display: flex; gap: .8rem; margin-top: 1.5rem; flex-wrap: wrap; }
+#learnPage .learn-sec { padding: 3rem 0; }
+#learnPage .learn-sec.alt { background: var(--surface); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+#learnPage .learn-sec h2 { font-size: 1.5rem; font-weight: 700; margin-bottom: 1.6rem; }
+#learnPage .learn-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.6rem 1.4rem; }
+#learnPage .learn-item { display: flex; gap: .9rem; align-items: flex-start; }
+#learnPage .learn-item .f-icon { width: 38px; height: 38px; flex: none; border-radius: 10px; background: var(--green-light); color: var(--green); display: flex; align-items: center; justify-content: center; }
+#learnPage .learn-item h3, #learnPage .role h3, #learnPage .learn-steps h3 { font-size: .98rem; font-weight: 700; margin-bottom: .25rem; }
+#learnPage .learn-item p, #learnPage .role p, #learnPage .learn-steps p { font-size: .88rem; color: var(--slate); line-height: 1.55; }
+#learnPage .learn-steps { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.6rem; }
+#learnPage .learn-steps li { display: flex; gap: .9rem; align-items: flex-start; }
+#learnPage .step-n { width: 32px; height: 32px; flex: none; border-radius: 50%; border: 1.5px solid var(--green); color: var(--green); font-weight: 700; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); }
+#learnPage .role-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+#learnPage .role { border: 1px solid var(--line); border-radius: 12px; padding: 1.1rem 1.2rem; background: var(--surface); }
+#learnPage .faq { max-width: 760px; }
+#learnPage details { border-bottom: 1px solid var(--line); padding: .95rem 0; }
+#learnPage details:first-of-type { border-top: 1px solid var(--line); }
+#learnPage summary { cursor: pointer; font-weight: 600; font-size: .95rem; list-style: none; display: flex; justify-content: space-between; gap: 1rem; }
+#learnPage summary::-webkit-details-marker { display: none; }
+#learnPage summary::after { content: '+'; color: var(--slate-light); font-weight: 400; font-size: 1.2rem; line-height: 1; }
+#learnPage details[open] summary::after { content: '\2212'; }
+#learnPage details p { margin-top: .6rem; font-size: .9rem; color: var(--slate); line-height: 1.6; }
+#learnPage .learn-end { padding: 3.2rem 0; text-align: center; }
+#learnPage .learn-end h2 { font-size: 1.6rem; font-weight: 700; }
+#learnPage .learn-end p { color: var(--slate); margin-top: .5rem; }
+#learnPage .learn-end .cta-row { justify-content: center; }
+#landingPage .price-grid:has(> .price-card:only-child) { grid-template-columns: minmax(0, 380px); justify-content: center; }
+#landingPage .pc-toggle { flex-wrap: wrap; max-width: 100%; }
+@media (max-width: 900px) {
+#landingPage .footer-grid { grid-template-columns: 1fr 1fr; }
+#landingPage .footer-brand { grid-column: 1 / -1; }
+#learnPage .learn-grid, #learnPage .learn-steps, #learnPage .role-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 768px) {
+#landingPage .navlinks { display: none; }
+}
+@media (max-width: 600px) {
+#landingPage .wrap { padding: 0 1rem; }
+#landingPage nav .wrap { padding: .65rem 1rem; }
+#landingPage .nav-actions { gap: .5rem; }
+#landingPage nav .btn-x { padding: .45rem .85rem; font-size: .82rem; }
+#landingPage .hero { padding: 2.2rem 0 2rem; }
+#landingPage .features, #landingPage .pricing, #landingPage .cta-section { padding: 2.6rem 0; }
+#landingPage .cta-box { padding: 1.8rem 1.2rem; border-radius: 16px; }
+#landingPage .compare-row { flex-direction: column; }
+#landingPage .compare-arrow { transform: rotate(90deg); padding: .1rem 0; }
+#landingPage .pc-calc { padding: 1.1rem; }
+#landingPage .pc-total-amt { font-size: 1.7rem; }
+#landingPage .footer-grid { grid-template-columns: 1fr; gap: 1.4rem; }
+#landingPage .footer-base { flex-direction: column; }
+#landingPage .footer-base .powered-by { text-align: left; }
+#learnPage .learn-head { padding: 2rem 0 1.8rem; }
+#learnPage .learn-sec { padding: 2.2rem 0; }
+#learnPage .learn-grid, #learnPage .learn-steps, #learnPage .role-grid { grid-template-columns: 1fr; }
+#learnPage .cta-row .btn-x { flex: 1 1 100%; justify-content: center; text-align: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+*, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+#learnPage { display: block; }
+.learn-hero-grid { display: grid; grid-template-columns: 1.05fr 1fr; gap: 2.5rem; align-items: center; }
+.learn-hero-grid img { width: 100%; height: auto; display: block; border-radius: 16px; border: 1px solid var(--line); }
+#learnPage .feature-row { display: grid; grid-template-columns: 1fr 1.1fr; gap: 2.6rem; align-items: center; padding: 1.6rem 0; }
+#learnPage .feature-row + .feature-row { border-top: 1px solid var(--line); }
+#learnPage .feature-row.reverse .fr-img { order: -1; }
+#learnPage .fr-img { margin: 0; }
+#learnPage .fr-img img { width: 100%; height: auto; display: block; border-radius: 16px; border: 1px solid var(--line); }
+#learnPage .fr-text .kicker { font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; color: var(--green); font-weight: 700; margin-bottom: .5rem; }
+#learnPage .fr-text h3 { font-size: 1.4rem; font-weight: 700; line-height: 1.25; margin-bottom: .7rem; }
+#learnPage .fr-text p { color: var(--slate); line-height: 1.65; font-size: .95rem; }
+#learnPage .fr-text ul { list-style: none; padding: 0; margin: 1rem 0 0; }
+#learnPage .fr-text li { display: flex; gap: .6rem; padding: .28rem 0; font-size: .9rem; }
+#learnPage .fr-text li i { color: var(--green); flex: none; }
+@media (max-width: 900px) {
+    .learn-hero-grid { grid-template-columns: 1fr; }
+    #learnPage .feature-row { grid-template-columns: 1fr; gap: 1.2rem; }
+    #learnPage .feature-row.reverse .fr-img { order: 0; }
+}
+
+    </style>
+</head>
+<body>
+    <div id="landingPage" style="display:block">
+        <nav aria-label="Main">
+            <div class="wrap">
+                <a class="logo" href="index.html" aria-label="SchoolFlow home"><span class="logo-mark" data-sf-logo><i class="bi bi-mortarboard-fill"></i></span><span class="logo-name">SchoolFlow</span></a>
+                <div class="navlinks">
+                    <a href="index.html#features">Features</a>
+                    <a href="index.html#pricing">Pricing</a>
+                    <a href="learn-more.html" aria-current="page">Learn more</a>
+                </div>
+                <div class="nav-actions">
+                    <a href="index.html?start=1" class="nav-signin">Sign in</a>
+                    <a href="index.html?start=1" class="btn-x btn-primary-x">Get started</a>
+                </div>
+            </div>
+        </nav>
+
+        <div id="learnPage">
+            <header class="learn-head">
+                <div class="wrap">
+                    <div class="learn-hero-grid">
+                        <div>
+                            <a class="learn-back" href="index.html"><i class="bi bi-arrow-left"></i> Back to home</a>
+                            <h1>How SchoolFlow works</h1>
+                            <p>SchoolFlow replaces the exercise books, loose receipts and spreadsheets that most schools run on. Here is what it does, who uses it, and how to get your school started.</p>
+                            <div class="cta-row">
+                                <a class="btn-x btn-primary-x" href="index.html?start=1">Start free this term</a>
+                                <a class="btn-x btn-outline-x" href="index.html#pricing">See pricing</a>
+                            </div>
+                        </div>
+                        <img src="images/fees.png" alt="SchoolFlow dashboard on a phone next to an approved fee receipt" width="1200" height="900" />
+                    </div>
+                </div>
+            </header>
+
+            <section class="learn-sec">
+                <div class="wrap">
+                    <h2>What your school gets</h2>
+                    <div class="feature-row">
+                <div class="fr-text">
+                    <div class="kicker">Fees and receipts</div>
+                    <h3>Know what has been paid, and what has not</h3>
+                    <p>Set the fees for each class and term once. Every student gets an invoice, and balances update as payments come in. Staff record payments, but nothing counts until you approve it.</p>
+                    <ul><li><i class="bi bi-check-lg"></i><span>Balances per student, per class and for the whole school</span></li><li><i class="bi bi-check-lg"></i><span>Numbered receipts you can print or save as a PDF</span></li><li><i class="bi bi-check-lg"></i><span>Every payment waits for your approval</span></li></ul>
+                </div>
+                <figure class="fr-img"><img src="images/fees.png" alt="SchoolFlow dashboard on a phone next to an approved fee receipt" width="1200" height="900" loading="lazy"></figure>
+            </div><div class="feature-row reverse">
+                <div class="fr-text">
+                    <div class="kicker">Report cards</div>
+                    <h3>Report cards for a whole class in one go</h3>
+                    <p>Teachers enter scores once. SchoolFlow builds the report cards with your school logo and colours, so there is no retyping at the end of term.</p>
+                    <ul><li><i class="bi bi-check-lg"></i><span>Pick a ready-made layout or upload your own template</span></li><li><i class="bi bi-check-lg"></i><span>Teacher and principal comments on every card</span></li><li><i class="bi bi-check-lg"></i><span>Print them or share them as PDFs</span></li></ul>
+                </div>
+                <figure class="fr-img"><img src="images/report-card.png" alt="A printed report card with subjects, scores, grades and comments" width="1200" height="900" loading="lazy"></figure>
+            </div><div class="feature-row">
+                <div class="fr-text">
+                    <div class="kicker">Lesson notes</div>
+                    <h3>Lesson notes that do not get lost on WhatsApp</h3>
+                    <p>Teachers can draft lesson notes with AI help and submit them from their phone. The head teacher reviews each one and approves it or sends it back.</p>
+                    <ul><li><i class="bi bi-check-lg"></i><span>See which notes are waiting and which are approved</span></li><li><i class="bi bi-check-lg"></i><span>Teachers keep all their notes in one place</span></li><li><i class="bi bi-check-lg"></i><span>You always review the draft before it counts</span></li></ul>
+                </div>
+                <figure class="fr-img"><img src="images/lesson-notes.png" alt="A lesson note and its review status showing it was approved by the head teacher" width="1200" height="900" loading="lazy"></figure>
+            </div><div class="feature-row reverse">
+                <div class="fr-text">
+                    <div class="kicker">Boarding</div>
+                    <h3>Run your hostels without a register book</h3>
+                    <p>Set up hostels and rooms, allocate beds, and take roll call at night. Hostel managers get their own login that shows only their residents.</p>
+                    <ul><li><i class="bi bi-check-lg"></i><span>Beds filled and beds free in every room</span></li><li><i class="bi bi-check-lg"></i><span>Night roll call with present, absent and exeat</span></li><li><i class="bi bi-check-lg"></i><span>A separate login for each hostel manager</span></li></ul>
+                </div>
+                <figure class="fr-img"><img src="images/hostel.png" alt="Hostel rooms with beds filled and a night roll call list" width="1200" height="900" loading="lazy"></figure>
+            </div>
+                </div>
+            </section>
+
+            <section class="learn-sec alt">
+                <div class="wrap">
+                    <h2>And the everyday basics</h2>
+                    <div class="learn-grid"><div class="learn-item"><div class="f-icon"><i class="bi bi-calendar-check"></i></div><div><h3>Attendance</h3><p>Teachers mark attendance from a phone, and the dashboard shows who is present today.</p></div></div><div class="learn-item"><div class="f-icon"><i class="bi bi-grid-3x3-gap"></i></div><div><h3>Timetables</h3><p>Build a weekly timetable for every class so teachers always know where they should be.</p></div></div><div class="learn-item"><div class="f-icon"><i class="bi bi-people"></i></div><div><h3>Parent and student portals</h3><p>Parents sign in with their phone number to see their child's results and fee balance. Students sign in with their admission number.</p></div></div><div class="learn-item"><div class="f-icon"><i class="bi bi-chat-dots"></i></div><div><h3>SMS reminders</h3><p>Send fee reminders to parents by SMS, using credits you top up when you need them.</p></div></div><div class="learn-item"><div class="f-icon"><i class="bi bi-globe2"></i></div><div><h3>Your school website</h3><p>Your school gets a simple website you can edit, with a link and a QR code to share.</p></div></div><div class="learn-item"><div class="f-icon"><i class="bi bi-phone"></i></div><div><h3>Works on your phone</h3><p>Open it in a browser or install it like an app. If the network drops, you can still view saved information.</p></div></div></div>
+                </div>
+            </section>
+
+            <section class="learn-sec">
+                <div class="wrap">
+                    <h2>Getting started</h2>
+                    <ol class="learn-steps"><li><span class="step-n">1</span><div><h3>Create your school</h3><p>Sign up with your school name and upload your logo. It takes about two minutes.</p></div></li><li><span class="step-n">2</span><div><h3>Set up classes, fees and students</h3><p>Add your classes and the fees for each term, then add students one by one or import them in bulk.</p></div></li><li><span class="step-n">3</span><div><h3>Start collecting</h3><p>Record payments, approve them and print receipts. Teachers, parents and students sign in with the accounts you give them.</p></div></li></ol>
+                </div>
+            </section>
+
+            <section class="learn-sec alt">
+                <div class="wrap">
+                    <h2>Who uses it</h2>
+                    <div class="role-grid"><div class="role"><h3>Proprietor or owner</h3><p>Sees what has been collected, what is outstanding, and approves payments.</p></div><div class="role"><h3>Bursar or accountant</h3><p>Records payments, tracks balances and sends fee reminders.</p></div><div class="role"><h3>Head teacher</h3><p>Reviews lesson notes and keeps an eye on attendance and results.</p></div><div class="role"><h3>Teachers</h3><p>Take attendance, enter scores and submit lesson notes.</p></div><div class="role"><h3>Hostel manager</h3><p>Manages rooms, bed allocation and night roll call.</p></div><div class="role"><h3>Parents and students</h3><p>Check results, fee balances and receipts from their own login.</p></div></div>
+                </div>
+            </section>
+
+            <section class="learn-sec">
+                <div class="wrap faq">
+                    <h2>Questions schools ask</h2>
+                    <details><summary>Do I need to install anything?</summary><p>No. SchoolFlow runs in the browser on a phone or laptop. You can also install it on your phone like an app.</p></details><details><summary>How much does it cost?</summary><p>You can pay monthly, per term, or per student at ₦600 per student per term. Paying for the whole year on the per-student plan saves 10%. You can start free this term with no card. <a href="index.html#pricing">See the full pricing</a>.</p></details><details><summary>How do I pay?</summary><p>By bank transfer. You send the payment, enter the transaction reference in the app, and we activate your plan once we confirm it.</p></details><details><summary>Who can see my school's records?</summary><p>Only the people you add, and each person sees only what their role allows. Parents see only their own children, and every payment needs your approval before it counts.</p></details><details><summary>What if the network is poor at my school?</summary><p>You can still open saved information when the network drops, but saving changes needs a connection. Most schools record payments and attendance when they are online.</p></details><details><summary>Can I bring my existing student list?</summary><p>Yes. Students can be imported in bulk. If you get stuck, message us on WhatsApp and we will help you.</p></details>
+                </div>
+            </section>
+
+            <section class="learn-end">
+                <div class="wrap">
+                    <h2>Ready to try it?</h2>
+                    <p>Set up your school in a couple of minutes. No card required.</p>
+                    <div class="cta-row">
+                        <a class="btn-x btn-primary-x" href="index.html?start=1">Start free this term</a>
+                        <a class="btn-x btn-outline-x" href="https://wa.me/2349161806424" target="_blank" rel="noopener">Talk to us on WhatsApp</a>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <footer>
+            <div class="wrap footer-grid">
+                <div class="footer-brand">
+                    <a class="logo" href="index.html"><span class="logo-mark" data-sf-logo><i class="bi bi-mortarboard-fill"></i></span><span class="logo-name">SchoolFlow</span></a>
+                    <p>School management for Nigerian private schools. Fees, receipts, attendance and report cards in one place.</p>
+                </div>
+                <div class="footer-col">
+                    <h6>Product</h6>
+                    <a href="index.html#features">Features</a>
+                    <a href="index.html#pricing">Pricing</a>
+                    <a href="learn-more.html">Learn more</a>
+                </div>
+                <div class="footer-col">
+                    <h6>Get in touch</h6>
+                    <a href="index.html?start=1">Sign in</a>
+                    <a href="index.html?start=1">Start free this term</a>
+                    <a href="https://wa.me/2349161806424" target="_blank" rel="noopener">Chat on WhatsApp</a>
+                </div>
+            </div>
+            <div class="wrap footer-base">
+                <span>&copy; 2026 SchoolFlow. All rights reserved.</span>
+                <span class="powered-by">Powered by <strong>XA Industries</strong></span>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        (function () {
+            var probe = new Image();
+            probe.onload = function () {
+                document.querySelectorAll('[data-sf-logo]').forEach(function (el) {
+                    el.classList.add('has-img');
+                    el.innerHTML = '<img src="icons/schoolflow-logo.png" alt="">';
+                });
+            };
+            probe.src = 'icons/schoolflow-logo.png';
+        })();
+    </script>
+</body>
+</html>
