@@ -1352,28 +1352,9 @@
         </section>
         <section class="pricing" id="pricing">
             <div class="wrap">
-                <h2 style="font-size:1.6rem;font-weight:700;">Simple pricing, monthly, per term or per student</h2>
-                <p style="color:var(--slate);max-width:60ch;margin-top:.3rem;">No setup fees. Pay monthly for the full set of features, or per term for a lighter set. Pay for longer and the price drops.</p>
-                <div class="pc-toggle" role="group" aria-label="Billing style">
-                    <button type="button" id="pcTabMonthly" class="active" aria-pressed="true" onclick="setPricingMode('monthly')">Monthly plans</button>
-                    <button type="button" id="pcTabTerm" aria-pressed="false" onclick="setPricingMode('term')">Pay per term</button>
-                    <button type="button" id="pcTabStudent" aria-pressed="false" onclick="setPricingMode('student')">Pay per student</button>
-                </div>
-                <div class="pc-toggle-note" id="pcModeNote"></div>
+                <h2 style="font-size:1.6rem;font-weight:700;">Simple pricing, per student, per term</h2>
+                <p style="color:var(--slate);max-width:60ch;margin-top:.3rem;">You only pay for the students you have. No setup fees.</p>
                 <div class="price-grid" id="landingPriceGrid"></div>
-                <div class="pc-addons"><strong>Add-ons on any plan, paid per term:</strong> extra report card templates and logo, premium insights and forecasting, and SMS credits that you top up when you need them.</div>
-                <div class="pc-calc" id="pricingCalc">
-                    <h3>Long-term price calculator</h3>
-                    <p class="pc-calc-sub">Pick a plan and how long you want to pay for. The longer you pay upfront, the bigger the discount.</p>
-                    <div class="pc-calc-body">
-                        <div>
-                            <div class="pc-field"><label class="field-label" for="pcPlan">Plan</label><select class="input-x" id="pcPlan" onchange="pcOnPlan(this.value)"></select></div>
-                            <div class="pc-field"><span class="field-label" id="pcDurLabel">Pay for</span><div class="pc-chips" id="pcChips" role="group" aria-labelledby="pcDurLabel"></div></div>
-                            <div class="pc-field"><label class="field-label" for="pcStudents">Number of students (optional)</label><input class="input-x" id="pcStudents" type="number" min="1" inputmode="numeric" placeholder="e.g. 120" oninput="pcOnStudents(this.value)" /><div class="pc-note" id="pcFit"></div></div>
-                        </div>
-                        <div class="pc-result" id="pcResult" aria-live="polite"></div>
-                    </div>
-                </div>
             </div>
         </section>
         <section class="cta-section">
@@ -2615,7 +2596,7 @@
                 <h5 id="subExpiredTitle" style="font-weight:700;margin-top:.5rem;">Subscription expired</h5>
                 <p class="eyebrow" style="margin:.4rem 0 1rem;">${owner ? 'Your school\'s subscription has ended. Renew to keep using SchoolFlow.' : 'Your school\'s subscription has ended. Please ask your school owner to renew it.'}</p>
                 <div class="d-flex gap-2 justify-content-center flex-wrap">
-                    ${owner ? '<button class="btn-x btn-gold-x" id="subExpiredPlans"><i class="bi bi-tags"></i> Choose a plan</button>' : ''}
+                    ${owner ? '<button class="btn-x btn-gold-x" id="subExpiredPlans"><i class="bi bi-tags"></i> Renew subscription</button>' : ''}
                     <button class="btn-x btn-outline-x" id="subExpiredOut">Sign out</button>
                 </div></div>`;
             document.body.appendChild(el);
@@ -3308,7 +3289,7 @@
             audit: ['Audit Logs', 'User activity tracking'],
             health: ['System Health', 'Monitoring & status'],
             subscription: ['Subscription', 'Plan & billing'],
-            paymentplans: ['Payment Plans', 'Choose a plan and save when you pay for longer'],
+            paymentplans: ['Payment Plans', 'Pay per student, per term'],
             insights: ['Insights', 'Premium trends & forecasting'],
             timetable: ['Timetable', 'Weekly class schedule'],
             assignments: ['Assignments', 'Homework and submissions'],
@@ -7364,14 +7345,11 @@
         POST_RENDER_HOOKS.subscription = async function() {
             try {
                 const plansResp = await Api.get('/subscriptions/plans');
-                if (plansResp.ok) window._subPlans = toArray(await Api.json(plansResp));
+                if (plansResp.ok) window._subPlans = toArray(await Api.json(plansResp)).filter(p => /per\s*student/i.test(p.name || ''));
             } catch (_) {}
             if (!window._subPlans || !window._subPlans.length) {
                 window._subPlans = [
-                    { name: 'Starter', price: 2000000, billingCycle: 'MONTHLY' },
-                    { name: 'Pro', price: 3000000, billingCycle: 'MONTHLY' },
-                    { name: 'Lite', price: 2000000, billingCycle: 'TERMLY' },
-                    { name: 'Lite Plus', price: 3000000, billingCycle: 'TERMLY' },
+                    { name: 'Per Student', price: 60000, billingCycle: 'TERMLY' }
                 ];
             }
             try {
@@ -7437,13 +7415,9 @@
             const active = (window._selectedRenewalPlan || window._subPlans[0]?.name || 'starter').toLowerCase();
             area.innerHTML = `
                 <div class="panel">
-                    <h6 class="mb-1">Choose a plan to get started</h6>
-                    <span class="eyebrow">Select a plan below, then subscribe to unlock SchoolFlow.</span>
-                    <div class="d-flex flex-column gap-2 mt-3" id="renewalPlanList">
-                        ${window._subPlans.map(p => planCardHtml(p, active)).join('')}
-                    </div>
-                    <button class="btn-x btn-gold-x btn-block-x mt-3" onclick="openRenewalModal()"><i class="bi bi-credit-card"></i> Subscribe</button>
-                    <button class="btn-x btn-outline-x btn-block-x mt-2" onclick="switchTab('settings','paymentplans')"><i class="bi bi-tags"></i> Pay for longer and save</button>
+                    <h6 class="mb-1">Subscribe to get started</h6>
+                    <span class="eyebrow">You pay per student, per term.</span>
+                    <button class="btn-x btn-gold-x btn-block-x mt-3" onclick="switchTab('settings','paymentplans')"><i class="bi bi-credit-card"></i> Subscribe</button>
                 </div>
             `;
         }
@@ -7457,11 +7431,8 @@
             area.innerHTML = `
                 <div class="row g-3">
                     <div class="col-lg-6"><div class="panel h-100"><h6 class="mb-3">Renew subscription</h6>
-                        <div class="d-flex flex-column gap-2" id="renewalPlanList">
-                            ${window._subPlans.map(p => planCardHtml(p, active)).join('')}
-                        </div>
-                        <button class="btn-x btn-gold-x btn-block-x mt-3" onclick="openRenewalModal()"><i class="bi bi-credit-card"></i> Renew</button>
-                    <button class="btn-x btn-outline-x btn-block-x mt-2" onclick="switchTab('settings','paymentplans')"><i class="bi bi-tags"></i> Pay for longer and save</button>
+                        <span class="eyebrow">You pay per student, per term.</span>
+                        <button class="btn-x btn-gold-x btn-block-x mt-3" onclick="switchTab('settings','paymentplans')"><i class="bi bi-credit-card"></i> Renew</button>
                     </div></div>
                     <div class="col-lg-6"><div class="panel h-100"><h6 class="mb-3">Billing history</h6><div id="billingHistory">${billingHtml}</div></div></div>
                 </div>
@@ -7596,11 +7567,11 @@
         };
 
         // PAYMENT PLANS (dashboard)
-        const ppState = { mode: 'monthly', planId: 'starter', periods: 1, current: null, students: 0, active: 0 };
+        const ppState = { mode: 'student', planId: 'perstudent', periods: 1, current: null, students: 0, active: 0 };
         PAGE_RENDERERS.paymentplans = function() {
             return `
             <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                <div><h5 style="font-weight:700;">Payment plans</h5><span class="eyebrow">Pick a plan, choose how long to pay for, and save on longer payments.</span></div>
+                <div><h5 style="font-weight:700;">Payment plans</h5><span class="eyebrow">You pay per student, per term.</span></div>
                 <span class="chip chip-gold" id="ppCurrent" style="display:none;"></span>
             </div>
             <div id="ppRoot"><div class="empty-x"><i class="bi bi-arrow-repeat"></i><p>Loading plans...</p></div></div>`;
@@ -7653,51 +7624,34 @@
             const periodText = ppLabel(unit, c.n);
             const customMsg = `Hello, I would like a custom price for ${_pageData.school?.name || 'my school'} on SchoolFlow.`;
             root.innerHTML = `
-                <div class="d-flex gap-2 flex-wrap mb-3">
-                    <button class="btn-x ${ppState.mode === 'monthly' ? 'btn-primary-x' : 'btn-outline-x'} btn-sm-x" onclick="ppSetMode('monthly')">Monthly plans</button>
-                    <button class="btn-x ${ppState.mode === 'term' ? 'btn-primary-x' : 'btn-outline-x'} btn-sm-x" onclick="ppSetMode('term')">Pay per term</button>
-                    <button class="btn-x ${ppState.mode === 'student' ? 'btn-primary-x' : 'btn-outline-x'} btn-sm-x" onclick="ppSetMode('student')">Pay per student</button>
-                </div>
-                <div class="eyebrow mb-3">${escapeHtml(group.note)}</div>
                 <div class="row g-3 mb-3">
                     ${group.plans.map(p => {
                         const sel = p.id === ppState.planId;
-                        return `<div class="col-md-4"><div class="panel h-100" role="button" tabindex="0" onclick="ppSetPlan('${p.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();ppSetPlan('${p.id}')}" style="cursor:pointer;border:1.5px solid ${sel ? 'var(--green)' : 'var(--line)'};background:${sel ? 'var(--green-light)' : 'var(--paper)'};">
+                        return `<div class="col-md-6"><div class="panel h-100" role="button" tabindex="0" onclick="ppSetPlan('${p.id}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();ppSetPlan('${p.id}')}" style="cursor:pointer;border:1.5px solid ${sel ? 'var(--green)' : 'var(--line)'};background:${sel ? 'var(--green-light)' : 'var(--paper)'};">
                             <div class="d-flex justify-content-between align-items-start"><div style="font-weight:700;">${escapeHtml(p.name)}</div>${sel ? '<i class="bi bi-check-circle-fill" style="color:var(--green);"></i>' : ''}</div>
                             <div class="figure-md num" style="color:var(--green);">${pcFmt(p.perStudent ? p.rate : p.price)}<span style="font-size:.75rem;font-weight:500;color:var(--slate);">/${p.perStudent ? 'student/term' : (p.unit === 'month' ? 'month' : 'term')}</span></div>
                             <div class="eyebrow mb-2">${escapeHtml(p.desc)}</div>
                             <ul style="list-style:none;padding:0;margin:0;font-size:.8rem;">${p.features.map(f => `<li class="py-1"><i class="bi bi-check-lg" style="color:var(--green);"></i> ${escapeHtml(f)}</li>`).join('')}</ul>
                         </div></div>`;
                     }).join('')}
-                    <div class="col-md-4"><div class="panel h-100">
-                        <div style="font-weight:700;">Custom pricing</div>
-                        <div class="figure-md num" style="color:var(--green);">Let's talk</div>
-                        <div class="eyebrow mb-2">For school groups, schools above 400 students, or anything that doesn't fit a plan.</div>
-                        <ul style="list-style:none;padding:0;margin:0 0 .8rem;font-size:.8rem;">${PRICING.customFeatures.map(f => `<li class="py-1"><i class="bi bi-check-lg" style="color:var(--green);"></i> ${escapeHtml(f)}</li>`).join('')}</ul>
-                        <a class="btn-x btn-outline-x btn-block-x" href="${pcContact(customMsg)}" target="_blank" rel="noopener"><i class="bi bi-whatsapp"></i> Get a custom quote</a>
-                    </div></div>
+                    
                 </div>
                 <div class="row g-3">
                     <div class="col-lg-6"><div class="panel h-100">
-                        <h6 class="mb-1">How long do you want to pay for?</h6>
-                        <span class="eyebrow">Pay for longer upfront and the discount grows.</span>
+                        <h6 class="mb-1">How many terms do you want to pay for?</h6>
                         <div class="d-flex flex-wrap gap-2 mt-3">
                             ${PRICING.discounts[pcTierKey(c.p)].map(([n]) => {
                                 const d = pcDiscount(pcTierKey(c.p), n), on = n === c.n;
-                                return `<button class="btn-x ${on ? 'btn-primary-x' : 'btn-outline-x'}" aria-pressed="${on}" onclick="ppSetPeriods(${n})" style="flex-direction:column;line-height:1.2;">${ppLabel(unit, n)}<small style="font-weight:500;opacity:.8;">${d ? d + '% off' : 'No discount'}</small></button>`;
+                                return `<button class="btn-x ${on ? 'btn-primary-x' : 'btn-outline-x'}" aria-pressed="${on}" onclick="ppSetPeriods(${n})" style="flex-direction:column;line-height:1.2;">${ppLabel(unit, n)}</button>`;
                             }).join('')}
                         </div>
                     </div></div>
                     <div class="col-lg-6"><div class="panel h-100" aria-live="polite">
                         <h6 class="mb-3">Your price</h6>
-                        ${c.p.perStudent ? `<div class="mb-3"><label class="field-label" for="ppStudents">Number of students</label><input class="input-x" id="ppStudents" type="number" min="1" inputmode="numeric" value="${c.students}" onchange="ppSetStudents(this.value)" /><div class="eyebrow mt-1">You are billed for your active students (${ppState.active || 0} right now) or this number, whichever is higher. Minimum ${pcFmt(c.p.minFee)} per term.</div></div>` : ''}
-                        <div class="d-flex justify-content-between py-1" style="font-size:.88rem;"><span>${escapeHtml(c.p.name)} for ${periodText}${c.p.perStudent ? ` (${c.students} students)` : ''}</span><span class="num">${c.disc ? `<s style="opacity:.6;">${pcFmt(c.base)}</s>` : pcFmt(c.base)}</span></div>
-                        ${c.disc ? `<div class="d-flex justify-content-between py-1" style="font-size:.88rem;"><span>Discount (${c.disc}%)</span><span class="num">-${pcFmt(c.saved)}</span></div>` : ''}
-                        <div class="d-flex justify-content-between align-items-end border-top mt-2 pt-2" style="border-color:var(--line-soft)!important;"><span style="font-weight:600;">You pay</span><span class="figure-md num">${pcFmt(c.total)}</span></div>
-                        ${c.disc ? `<div style="color:var(--green);font-weight:700;font-size:.85rem;">You save ${pcFmt(c.saved)}</div>` : ''}
-                        <div class="eyebrow mt-1">Works out to ${pcFmt(c.total / c.n)} per ${unit}</div>
-                        <div class="eyebrow mt-2">${next ? `Pay for ${next[0]} ${unit}s upfront to get ${next[1]}% off.` : 'This is the biggest discount.'}</div>
-                        <button class="btn-x btn-gold-x btn-block-x mt-3" onclick="ppOpenPay()"><i class="bi bi-credit-card"></i> ${window._subHasSubscription ? 'Renew with this plan' : 'Subscribe with this plan'}</button>
+                        ${c.p.perStudent ? `<div class="mb-3"><label class="field-label" for="ppStudents">Number of students</label><input class="input-x" id="ppStudents" type="number" min="1" inputmode="numeric" value="${c.students}" onchange="ppSetStudents(this.value)" /><div class="eyebrow mt-1">You are billed for your active students (${ppState.active || 0} right now) or this number, whichever is higher.</div></div>` : ''}
+                        <div class="d-flex justify-content-between py-1" style="font-size:.88rem;"><span>${escapeHtml(c.p.name)} for ${periodText}${c.p.perStudent ? ` (${c.students} students)` : ''}</span><span class="num">${pcFmt(c.base)}</span></div>
+                                                <div class="d-flex justify-content-between align-items-end border-top mt-2 pt-2" style="border-color:var(--line-soft)!important;"><span style="font-weight:600;">You pay</span><span class="figure-md num">${pcFmt(c.total)}</span></div>
+                                                                        <button class="btn-x btn-gold-x btn-block-x mt-3" onclick="ppOpenPay()"><i class="bi bi-credit-card"></i> ${window._subHasSubscription ? 'Renew with this plan' : 'Subscribe with this plan'}</button>
                     </div></div>
                 </div>`;
         }
@@ -7720,7 +7674,7 @@
             const c = ppCalc();
             const unit = c.p.unit;
             openModal(window._subHasSubscription ? 'Renew subscription' : 'Subscribe', `
-                <div class="text-center mb-3"><div style="font-weight:700;font-size:1.1rem;">${escapeHtml(_pageData.school?.name || 'SchoolFlow')}</div><div class="eyebrow">${escapeHtml(c.p.name)} for ${ppLabel(unit, c.n)}${c.p.perStudent ? ` · ${c.students} students` : ''}${c.disc ? ` (${c.disc}% off)` : ''}</div></div>
+                <div class="text-center mb-3"><div style="font-weight:700;font-size:1.1rem;">${escapeHtml(_pageData.school?.name || 'SchoolFlow')}</div><div class="eyebrow">${escapeHtml(c.p.name)} for ${ppLabel(unit, c.n)}${c.p.perStudent ? ` · ${c.students} students` : ''}</div></div>
                 <div class="bank-box mb-3">
                     <div style="font-weight:700;margin-bottom:.4rem;">Pay by bank transfer</div>
                     <div class="bank-line"><span class="bank-label">Bank</span><span class="bank-value">${escapeHtml(BANK.bankName)}</span></div>
@@ -12132,18 +12086,18 @@
                 { id: 'liteplus', name: 'Lite Plus', price: 30000, cap: 150, featured: true, desc: 'A little more room for a growing school.',
                   features: ['Up to 150 students', 'Everything in Lite', '3 staff logins', 'Basic result sheets'] }
             ] },
-            student: { unit: 'term', note: 'Pay only for the students you have: ₦600 per student, per term. Pay for the whole year and save 10%.', plans: [
-                { id: 'perstudent', name: 'Per Student', perStudent: true, rate: 600, minFee: 20000, price: 20000, cap: 100000, tiers: 'student', featured: true, desc: 'Pay per child, per term. A small school pays less, a big school pays for what it uses.',
-                  features: ['₦600 per student, per term', '₦20,000 minimum per term', 'Fees, payments & receipts', 'Attendance tracking', 'Parent portal', 'Pay for the whole year and save 10%'] }
+            student: { unit: 'term', note: 'Pay only for the students you have: ₦600 per student, per term.', plans: [
+                { id: 'perstudent', name: 'Per Student', perStudent: true, rate: 600, minFee: 0, price: 600, cap: 100000, tiers: 'student', featured: true, desc: 'Pay per child, per term. You only pay for the students you have.',
+                  features: ['Fees, payments & receipts', 'Attendance tracking', 'Parent portal'] }
             ] },
             discounts: {
-                student: [[1, 0], [3, 10]],
+                student: [[1, 0], [3, 0]],
                 month: [[1, 0], [3, 5], [6, 10], [12, 15], [24, 20]],
                 term:  [[1, 0], [2, 5], [3, 10], [6, 15], [9, 20]]
             },
             customFeatures: ['Any number of students', 'Several campuses with cross-campus reporting', 'Pick only the modules you need', 'Price set around your school size', 'Priority support & dedicated onboarding']
         };
-        const pcState = { mode: 'monthly', planId: 'starter', periods: 12, students: '' };
+        const pcState = { mode: 'student', planId: 'perstudent', periods: 1, students: '' };
         const pcFmt = n => '₦' + Math.round(n).toLocaleString('en-NG');
         const pcPlans = () => [].concat(
             PRICING.monthly.plans.map(p => Object.assign({ unit: 'month', mode: 'monthly' }, p)),
@@ -12162,33 +12116,18 @@
         function renderLandingPricing() {
             const grid = document.getElementById('landingPriceGrid');
             if (!grid) return;
-            const group = PRICING[pcState.mode];
-            const per = group.unit === 'month' ? 'month' : 'term';
-            document.getElementById('pcTabMonthly').classList.toggle('active', pcState.mode === 'monthly');
-            document.getElementById('pcTabTerm').classList.toggle('active', pcState.mode === 'term');
-            document.getElementById('pcTabMonthly').setAttribute('aria-pressed', pcState.mode === 'monthly');
-            document.getElementById('pcTabTerm').setAttribute('aria-pressed', pcState.mode === 'term');
-            const stTab = document.getElementById('pcTabStudent');
-            if (stTab) { stTab.classList.toggle('active', pcState.mode === 'student'); stTab.setAttribute('aria-pressed', pcState.mode === 'student'); }
-            document.getElementById('pcModeNote').textContent = group.note;
             const li = f => `<li><i class="bi bi-check-lg"></i> ${escapeHtml(f)}</li>`;
-            grid.innerHTML = group.plans.map(p => `<div class="price-card ${p.featured ? 'featured' : ''}">
+            const p = PRICING.student.plans[0];
+            grid.innerHTML = `<div class="price-card featured">
                     <div class="price-name">${escapeHtml(p.name)}</div>
                     <div class="price-desc">${escapeHtml(p.desc)}</div>
-                    <div class="price-amount">${pcPriceHtml(p, per)}</div>
+                    <div class="price-amount">${pcPriceHtml(p, 'term')}</div>
                     <ul class="price-list">${p.features.map(li).join('')}</ul>
-                    <button class="btn-x ${p.featured ? 'btn-primary-x' : 'btn-outline-x'}" style="width:100%;justify-content:center;" onclick="enterAppFromLanding()">Start free trial</button>
-                    <button type="button" class="pc-link" onclick="pcPick('${p.id}')">See long-term savings</button>
-                </div>`).join('') + `<div class="price-card">
-                    <div class="price-name">Custom</div>
-                    <div class="price-desc">For school groups, schools above 400 students, or anything that doesn't fit a plan.</div>
-                    <div class="price-amount">Let's talk</div>
-                    <ul class="price-list">${PRICING.customFeatures.map(li).join('')}</ul>
-                    <a href="${pcContact('Hello, I would like a custom price for my school on SchoolFlow.')}" target="_blank" rel="noopener" class="btn-x btn-outline-x" style="width:100%;justify-content:center;">Get a custom quote</a>
+                    <button class="btn-x btn-primary-x" style="width:100%;justify-content:center;" onclick="enterAppFromLanding()">Start free trial</button>
                 </div>`;
         }
         function setPricingMode(mode) {
-            pcState.mode = mode;
+            mode = 'student'; pcState.mode = mode;
             const first = PRICING[mode].plans[0];
             const cur = pcPlan(pcState.planId);
             if (!cur || cur.mode !== mode) pcSetPlan(first.id);
