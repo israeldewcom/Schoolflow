@@ -1,0 +1,9 @@
+{
+  "appId": "com.schoolflow.app",
+  "appName": "SchoolFlow",
+  "webDir": "www",
+  "backgroundColor": "#FDFBF6",
+  "android": {
+    "allowMixedContent": false
+  }
+}
