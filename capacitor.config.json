@@ -1,8 +1,12 @@
 {
-  "appId": "com.schoolflow.app",
-  "appName": "SchoolFlow",
+  "appId": "com.studyarena.app",
+  "appName": "Study Arena",
   "webDir": "www",
-  "backgroundColor": "#FDFBF6",
+  "backgroundColor": "#2338E6",
+  "server": {
+    "url": "https://studry-1.vercel.app",
+    "cleartext": false
+  },
   "android": {
     "allowMixedContent": false
   }
